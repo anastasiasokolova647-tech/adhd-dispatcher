@@ -6,6 +6,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, "data.json");
 
+if (!fs.existsSync(DATA_FILE)) {
+  fs.writeFileSync(DATA_FILE, JSON.stringify({ folders: [], tasks: [], inbox: [] }, null, 2), "utf8");
+}
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
