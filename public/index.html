@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Мій СДУГ-диспетчер</title>
+  <link rel="stylesheet" href="style.css"></head>
+<body>
+  <h1>🧠 Мій СДУГ-диспетчер</h1>
+  <p>Не тримай усе в голові. Вона й так зайнята.</p>
+
+  <nav>
+    <button onclick="showInbox()">🧠 Вивантажити з голови</button>
+    <button onclick="showToday()">☀️ Сьогодні</button>
+    <button onclick="showFolders()">📁 Папки</button>
+    <button>🅿️ Парковка</button>
+  </nav>
+
+  <section id="anchorPhrase">
+    <div>
+      <strong>🌸 Фраза, що тримає</strong>
+      <button onclick="editAnchorPhrase()" title="Змінити фразу">✏️</button>
+    </div>
+    <p id="anchorPhraseText">Торкнись ✏️ і залиш собі фразу на сьогодні</p>
+  </section>
+
+  <main>
+    <h2>Що зараз крутиться в голові?</h2>
+    <textarea placeholder="Розкажи мені. Я хочу це почути…"></textarea>
+    <br>
+    <button>Зберегти</button>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
