@@ -1,0 +1,10 @@
+{
+  "name": "Мій СДУГ-диспетчер",
+  "short_name": "Диспетчер",
+  "description": "Мій затишний диспетчер справ, думок і проєктів",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8dfe3",
+  "theme_color": "#f3b8c4",
+  "icons": []
+}
