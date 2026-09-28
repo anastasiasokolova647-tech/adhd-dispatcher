@@ -1,4 +1,4 @@
-const express = require("express");
+﻿const express = require("express");
 const path = require("path");
 const fs = require("fs");
 const { Pool } = require("pg");
@@ -15,6 +15,19 @@ const pool = DATABASE_URL ? new Pool({
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
+
+app.use("/api", (req, res, next) => {
+  const host = req.hostname;
+  const isLocal =
+    host === "localhost" ||
+    host === "127.0.0.1";
+
+  if (!isLocal) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  next();
+});
 
 async function initDatabase() {
   if (!pool) return;
@@ -77,10 +90,11 @@ app.post("/api/data", async (req, res) => {
 initDatabase()
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`ADHD Calendar запущено: http://localhost:${PORT}`);
+      console.log(`Час для себе запущено: http://localhost:${PORT}`);
     });
   })
   .catch(error => {
     console.error("Помилка підключення до бази:", error);
     process.exit(1);
   });
+

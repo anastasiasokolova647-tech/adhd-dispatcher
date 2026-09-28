@@ -1,7 +1,7 @@
-{
-  "name": "Friendly DayPlanner",
-  "short_name": "DayPlanner",
-  "description": "Мій затишний диспетчер справ, думок і проєктів",
+﻿{
+  "name": "Час для себе",
+  "short_name": "Час для себе",
+  "description": "Мій затишний простір справ, думок і маленьких кроків",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

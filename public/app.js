@@ -1,4 +1,4 @@
-let data = { folders: [], tasks: [] };
+﻿let data = { folders: [], tasks: [] };
 
 const typeNames = {
   agreement: "🔁 Регулярне · домовленість",
@@ -7,12 +7,33 @@ const typeNames = {
   oneTime: "⚡ Одноразове"
 };
 
+const PUBLIC_STORAGE_KEY = "friendly-dayplanner-data-v1";
+
+const IS_PUBLIC_APP =
+  window.location.hostname !== "localhost" &&
+  window.location.hostname !== "127.0.0.1";
+
 async function loadData() {
+  if (IS_PUBLIC_APP) {
+    const saved = localStorage.getItem(PUBLIC_STORAGE_KEY);
+
+    data = saved
+      ? JSON.parse(saved)
+      : { folders: [], tasks: [], inbox: [] };
+
+    return;
+  }
+
   const response = await fetch("/api/data");
   data = await response.json();
 }
 
 async function saveData() {
+  if (IS_PUBLIC_APP) {
+    localStorage.setItem(PUBLIC_STORAGE_KEY, JSON.stringify(data));
+    return;
+  }
+
   await fetch("/api/data", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -115,6 +136,13 @@ function openFolder(id) {
         <p>
           <button onclick="toggleTask(${task.id}, ${id})">${task.done ? "✅" : "☐"}</button>
           <strong>${typeNames[task.type] || "📝 Стара справа"}</strong>
+          ${(task.type === "externalDeadline" || task.type === "ownDeadline") && task.date
+            ? ` · 📅 ${new Date(task.date + "T00:00:00").toLocaleDateString("uk-UA", {
+                weekday: "long",
+                day: "numeric",
+                month: "long"
+              })}`
+            : ""}
           — ${task.text}
           <button onclick="editTask(${task.id}, ${id})">✏️</button>
           <button onclick="deleteTask(${task.id}, ${id})">🗑️</button>
@@ -185,6 +213,16 @@ window.celebrateTask = celebrateTask;async function addTask(folderId) {
     task.time = time.trim();
   }
 
+  if (task.type === "externalDeadline" || task.type === "ownDeadline") {
+    const date = prompt(
+      "Дата дедлайну у форматі РРРР-ММ-ДД:",
+      new Date().toISOString().slice(0, 10)
+    );
+
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) return;
+    task.date = date.trim();
+  }
+
   data.tasks.push(task);
   await saveData();
   openFolder(folderId);
@@ -217,6 +255,182 @@ window.openFolder = openFolder;
 window.addTask = addTask;
 window.renameFolder = renameFolder;
 window.deleteFolder = deleteFolder;
+function normalizeInboxText(text) {
+  return String(text).toLowerCase().replace(/[’ʼ]/g, "'");
+}
+
+function escapeInboxHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function looksLikeInboxTask(text) {
+  const t = normalizeInboxText(text);
+
+  const emotionalStarts = [
+    /^я боюсь\b/,
+    /^мені страшно\b/,
+    /^я сумую\b/,
+    /^мені сумно\b/,
+    /^я злюсь\b/,
+    /^я втомил/,
+    /^я не знаю\b/,
+    /^я думаю\b/,
+    /^я відчуваю\b/
+  ];
+
+  if (emotionalStarts.some(rule => rule.test(t))) return false;
+
+  return /\b(зробити|доробити|написати|записати|прочитати|вивчити|підготувати|купити|замовити|помити|помитись|прибрати|розкласти|попрасувати|зателефонувати|відправити|скинути|перевірити|додати|створити|завантажити|розібрати|розсортувати|оформити|забрати|сходити|поїхати|заплатити|здати|виконати|почистити|винести|приготувати|перейменувати|налаштувати|встановити)\b/i.test(t);
+}
+
+function suggestInboxFolder(text) {
+  const t = normalizeInboxText(text);
+
+  const rules = [
+    {
+      name: "Гігієна",
+      words: ["помитись", "душ", "зуб", "волос", "гігієн"]
+    },
+    {
+      name: "Учні",
+      words: ["аня", "ярік", "наталоч", "учен", "урок", "prepare"]
+    },
+    {
+      name: "Навчання",
+      words: ["конспект", "універ", "пара", "дз", "домашн", "лекц", "семінар", "магістрат", "викладач"]
+    },
+    {
+      name: "Книги",
+      words: ["книга", "роман", "вірш", "розділ", "аудіокниг", "обкладин", "трейлер", "дівчинк", "крізь ніч", "сад, що слухає", "крила надії"]
+    },
+    {
+      name: "Квартира",
+      words: ["квартир", "підлог", "посуд", "ванн", "раковин", "спальн", "коридор", "вітальн", "кухн", "попрас", "білизн", "прибрати"]
+    },
+    {
+      name: "Подорожі",
+      words: ["подорож", "поїздк", "маршрут", "готель", "квит", "гідропарк", "заречан"]
+    },
+    {
+      name: "Задумки на проекти",
+      words: ["проєкт", "проект", "додаток", "сайт", "диспетчер", "відеомейкер", "фільммейкер", "стабілізатор", "obsidian", "quartz"]
+    },
+    {
+      name: "Що надихає",
+      words: ["натхнен", "цитат", "музик", "плейлист", "фото"]
+    }
+  ];
+
+  const variants = rules
+    .map(rule => {
+      const folder = data.folders.find(
+        f => normalizeInboxText(f.name) === normalizeInboxText(rule.name)
+      );
+
+      if (!folder) return null;
+
+      const score = rule.words.reduce(
+        (sum, word) => sum + (t.includes(word) ? 1 : 0),
+        0
+      );
+
+      return { folder, score };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score);
+
+  return variants[0]?.score ? variants[0] : null;
+}
+
+function askInboxFolder(text) {
+  const folders = data.folders.filter(folder => !folder.celebration);
+
+  const menu = folders
+    .map((folder, index) => `${index + 1} — ${folder.name}`)
+    .join("\n");
+
+  const answer = prompt(
+    `Куди покласти цю справу?\n\n"${text}"\n\n${menu}\n\nСкасування — лишити у Вхідних.`
+  );
+
+  if (!answer) return null;
+
+  const index = Number(answer) - 1;
+
+  if (!Number.isInteger(index) || !folders[index]) return null;
+
+  return folders[index];
+}
+
+async function sortInboxItem(itemId, forcePick = false) {
+  const item = data.inbox.find(x => x.id === itemId);
+  if (!item) return false;
+
+  if (!forcePick && !looksLikeInboxTask(item.text)) {
+    return false;
+  }
+
+  let folder = null;
+
+  if (forcePick) {
+    folder = askInboxFolder(item.text);
+  } else {
+    const suggestion = suggestInboxFolder(item.text);
+
+    if (suggestion && suggestion.score >= 2) {
+      folder = suggestion.folder;
+    } else if (suggestion && suggestion.score === 1) {
+      const yes = confirm(
+        `Схоже, це завдання для папки "${suggestion.folder.name}". Перенести?`
+      );
+
+      if (yes) {
+        folder = suggestion.folder;
+      } else {
+        return false;
+      }
+    } else {
+      folder = askInboxFolder(item.text);
+    }
+  }
+
+  if (!folder) return false;
+
+  data.tasks.push({
+    id: Date.now(),
+    folderId: folder.id,
+    text: item.text,
+    type: "oneTime",
+    done: false
+  });
+
+  data.inbox = data.inbox.filter(x => x.id !== item.id);
+
+  await saveData();
+  return true;
+}
+
+window.sortInboxItem = sortInboxItem;
+
+async function deleteInboxItem(itemId) {
+  const item = data.inbox.find(x => x.id === itemId);
+  if (!item) return;
+
+  if (!confirm(`Видалити "${item.text}" із Вхідних?`)) return;
+
+  data.inbox = data.inbox.filter(x => x.id !== itemId);
+
+  await saveData();
+  showInbox();
+}
+
+window.deleteInboxItem = deleteInboxItem;
+
 async function showInbox() {
   await loadData();
 
@@ -234,7 +448,11 @@ async function showInbox() {
     <div id="inboxList">
       ${data.inbox.length
         ? data.inbox.slice().reverse().map(item => `
-            <p>📝 ${item.text}</p>
+            <p>
+              📝 ${escapeInboxHtml(item.text)}
+              <button onclick="sortInboxItem(${item.id}, true)">🧭 Розібрати</button>
+              <button onclick="deleteInboxItem(${item.id})">🗑️ Видалити</button>
+            </p>
           `).join("")
         : "<p>Тут порожньо 🌿</p>"
       }
@@ -247,13 +465,20 @@ async function showInbox() {
 
     if (!text) return;
 
-    data.inbox.push({
+    const item = {
       id: Date.now(),
       text,
       createdAt: new Date().toISOString()
-    });
+    };
 
-    await saveData();
+    data.inbox.push(item);
+
+    const moved = await sortInboxItem(item.id);
+
+    if (!moved) {
+      await saveData();
+    }
+
     showInbox();
   };
 }
@@ -300,7 +525,10 @@ async function showToday() {
         task.repeat === "weekly" &&
         task.weekday === weekday;
 
-      return (isDatedToday || isWeeklyToday) && !task.done;
+      const isDueOrOverdue = task.date && task.date <= today;
+      const isUndated = !task.date && task.type !== "agreement";
+
+      return (isDueOrOverdue || isUndated || isWeeklyToday) && !task.done;
     })
     .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
 

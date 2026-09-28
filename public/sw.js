@@ -1,4 +1,4 @@
-const CACHE_NAME = "adhd-dispatcher-v1";
+﻿const CACHE_NAME = "chas-dlia-sebe-v1";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
