@@ -25,6 +25,7 @@ async function loadData() {
   }
 
   const response = await fetch("/api/data");
+  if (!response.ok) throw new Error("Не вдалося завантажити справи");
   data = await response.json();
 }
 
@@ -34,12 +35,30 @@ async function saveData() {
     return;
   }
 
-  await fetch("/api/data", {
+  const response = await fetch("/api/data", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data)
   });
+  if (!response.ok) throw new Error("Не вдалося зберегти справу");
 }
+
+document.getElementById("homeSaveInbox")?.addEventListener("click", async () => {
+  const input = document.getElementById("homeInboxText");
+  const text = input.value.trim();
+  if (!text) return;
+
+  try {
+    await loadData();
+    if (!Array.isArray(data.inbox)) data.inbox = [];
+    data.inbox.push({ id: Date.now(), text, createdAt: new Date().toISOString() });
+    await saveData();
+    await showInbox();
+  } catch (error) {
+    alert("Справу не збережено. Спробуй ще раз після відновлення з’єднання.");
+    console.error(error);
+  }
+});
 
 async function showFolders() {
   await loadData();
