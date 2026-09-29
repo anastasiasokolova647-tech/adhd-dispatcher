@@ -174,9 +174,18 @@ function openFolder(id) {
 
 async function celebrateTask(taskId, oldFolderId) {
   const task = data.tasks.find(t => t.id === taskId);
-  const celebrationFolder = data.folders.find(f => f.celebration);
+  if (!task) return;
 
-  if (!task || !celebrationFolder) return;
+  let celebrationFolder = data.folders.find(f => f.celebration);
+
+  if (!celebrationFolder) {
+    celebrationFolder = {
+      id: Date.now(),
+      name: "З чим я вітаю тебе",
+      celebration: true
+    };
+    data.folders.push(celebrationFolder);
+  }
 
   task.folderId = celebrationFolder.id;
   task.done = true;
@@ -188,7 +197,9 @@ async function celebrateTask(taskId, oldFolderId) {
   setTimeout(() => openFolder(oldFolderId), 5000);
 }
 
-window.celebrateTask = celebrateTask;async function addTask(folderId) {
+window.celebrateTask = celebrateTask;
+
+async function addTask(folderId) {
   const text = prompt("Що треба зробити?");
   if (!text || !text.trim()) return;
 
