@@ -1,4 +1,4 @@
-﻿const express = require("express");
+const express = require("express");
 const path = require("path");
 const fs = require("fs");
 const { Pool } = require("pg");
@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, "data.json");
 const DATABASE_URL = process.env.DATABASE_URL;
 
-const pool = DATABASE_URL ? new Pool({
+let pool = DATABASE_URL ? new Pool({
   connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 }) : null;
@@ -87,14 +87,18 @@ app.post("/api/data", async (req, res) => {
   }
 });
 
-initDatabase()
-  .then(() => {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Час для себе запущено: http://localhost:${PORT}`);
-    });
-  })
-  .catch(error => {
-    console.error("Помилка підключення до бази:", error);
-    process.exit(1);
+async function startServer() {
+  try {
+    await initDatabase();
+  } catch (error) {
+    console.error("База недоступна, запускаю застосунок без неї:", error);
+    pool = null;
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Час для себе запущено: http://localhost:${PORT}`);
   });
+}
+
+startServer();
 
