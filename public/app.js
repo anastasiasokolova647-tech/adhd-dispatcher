@@ -632,6 +632,132 @@ async function toggleWeekTask(taskId) {
 
 window.toggleWeekTask = toggleWeekTask;
 
+
+let calendarCursor = new Date();
+
+function calendarTaskMatchesDate(task, date) {
+  const dateKey = formatLocalDate(date);
+  const weekday = date.getDay() === 0 ? 7 : date.getDay();
+
+  const weeklyTask =
+    task.type === "agreement" &&
+    task.repeat === "weekly" &&
+    task.weekday === weekday;
+
+  const datedTask = task.date === dateKey;
+
+  return weeklyTask || datedTask;
+}
+
+async function showCalendar(year, month) {
+  await loadData();
+
+  if (Number.isInteger(year) && Number.isInteger(month)) {
+    calendarCursor = new Date(year, month, 1);
+  } else {
+    calendarCursor = new Date(
+      calendarCursor.getFullYear(),
+      calendarCursor.getMonth(),
+      1
+    );
+  }
+
+  const yearValue = calendarCursor.getFullYear();
+  const monthValue = calendarCursor.getMonth();
+  const firstDay = new Date(yearValue, monthValue, 1);
+  const lastDay = new Date(yearValue, monthValue + 1, 0);
+  const mondayOffset = (firstDay.getDay() + 6) % 7;
+  const totalCells = Math.ceil((mondayOffset + lastDay.getDate()) / 7) * 7;
+  const todayKey = formatLocalDate(new Date());
+
+  const monthTitle = calendarCursor.toLocaleDateString("uk-UA", {
+    month: "long",
+    year: "numeric"
+  });
+
+  const weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
+
+  const cells = Array.from({ length: totalCells }, (_, index) => {
+    const dayNumber = index - mondayOffset + 1;
+
+    if (dayNumber < 1 || dayNumber > lastDay.getDate()) {
+      return '<div class="calendar-day calendar-day-empty"></div>';
+    }
+
+    const date = new Date(yearValue, monthValue, dayNumber);
+    const dateKey = formatLocalDate(date);
+
+    const tasks = data.tasks
+      .filter(task => calendarTaskMatchesDate(task, date))
+      .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+
+    const taskHtml = tasks.length
+      ? tasks.map(task => {
+          const folder = data.folders.find(f => f.id === task.folderId);
+          const folderName = folder?.name || "Без папки";
+          return `
+            <button
+              class="calendar-task ${task.done ? "calendar-task-done" : ""}"
+              onclick="openFolder(${task.folderId})"
+              title="${escapeInboxHtml(folderName)}"
+            >
+              ${task.done ? "✅ " : ""}
+              ${task.time ? `<strong>${task.time}</strong> ` : ""}
+              ${escapeInboxHtml(task.text)}
+              <small>${escapeInboxHtml(folderName)}</small>
+            </button>
+          `;
+        }).join("")
+      : "";
+
+    return `
+      <div class="calendar-day ${dateKey === todayKey ? "calendar-day-today" : ""}">
+        <div class="calendar-date">${dayNumber}</div>
+        <div class="calendar-tasks">${taskHtml}</div>
+      </div>
+    `;
+  }).join("");
+
+  document.querySelector("main").innerHTML = `
+    <div class="calendar-header">
+      <button onclick="changeCalendarMonth(-1)" aria-label="Попередній місяць">←</button>
+      <h2>📅 ${monthTitle}</h2>
+      <button onclick="changeCalendarMonth(1)" aria-label="Наступний місяць">→</button>
+    </div>
+
+    <button class="calendar-today-button" onclick="goCalendarToday()">Сьогодні</button>
+
+    <div class="calendar-scroll">
+      <div class="calendar-grid calendar-weekdays">
+        ${weekdays.map(day => `<div>${day}</div>`).join("")}
+      </div>
+      <div class="calendar-grid">
+        ${cells}
+      </div>
+    </div>
+  `;
+}
+
+window.showCalendar = showCalendar;
+
+function changeCalendarMonth(delta) {
+  calendarCursor = new Date(
+    calendarCursor.getFullYear(),
+    calendarCursor.getMonth() + delta,
+    1
+  );
+  showCalendar();
+}
+
+window.changeCalendarMonth = changeCalendarMonth;
+
+function goCalendarToday() {
+  calendarCursor = new Date();
+  showCalendar();
+}
+
+window.goCalendarToday = goCalendarToday;
+
 async function showToday() {
   await loadData();
 
