@@ -291,3 +291,37 @@ small {
   box-shadow: none;
   background: rgba(255,239,245,.72);
 }
+
+
+.book-queue {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.book-queue-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(231,203,214,.9);
+  border-radius: 16px;
+  background: rgba(255,255,255,.62);
+}
+
+.book-queue-card > div {
+  display: grid;
+  gap: 4px;
+}
+
+.book-queue-card small {
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .book-queue-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
