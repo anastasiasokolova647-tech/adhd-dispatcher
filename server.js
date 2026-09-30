@@ -1,6 +1,7 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const { Pool } = require("pg");
 
 const app = express();
@@ -14,6 +15,15 @@ let pool = DATABASE_URL ? new Pool({
 }) : null;
 
 app.use(express.json());
+
+const BOOK_TRACKER_DIR =
+  process.env.BOOK_TRACKER_DIR ||
+  path.join(os.homedir(), "Downloads", "Трекер прогресу по книгах");
+
+if (fs.existsSync(BOOK_TRACKER_DIR)) {
+  app.use("/book-tracker", express.static(BOOK_TRACKER_DIR));
+}
+
 app.use(express.static(path.join(__dirname, "public")));
 
 app.use("/api", (req, res, next) => {
@@ -97,6 +107,9 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Час для себе запущено: http://localhost:${PORT}`);
+    if (fs.existsSync(BOOK_TRACKER_DIR)) {
+      console.log(`Трекер книг: http://localhost:${PORT}/book-tracker/`);
+    }
   });
 }
 
