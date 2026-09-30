@@ -134,13 +134,21 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
 
 app.use(express.static(path.join(__dirname, "public")));
 
-app.use("/api", (req, res, next) => {
-  const host = req.hostname;
-  const isLocal =
-    host === "localhost" ||
-    host === "127.0.0.1";
+function isPrivateLanHost(host) {
+  if (host === "localhost" || host === "127.0.0.1") return true;
 
-  if (!isLocal) {
+  const parts = String(host).split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) return false;
+
+  if (parts[0] === 10) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+
+  return false;
+}
+
+app.use("/api", (req, res, next) => {
+  if (!isPrivateLanHost(req.hostname)) {
     return res.status(404).json({ error: "Not found" });
   }
 
