@@ -319,7 +319,27 @@ small {
   margin: 0;
 }
 
+.book-queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.book-kind-edit {
+  background: rgba(255,255,255,.82);
+  color: inherit;
+  border: 1px solid rgba(231,203,214,.95);
+  box-shadow: none;
+}
+
 @media (max-width: 600px) {
+  .book-queue-actions {
+    display: grid;
+    grid-template-columns: 1fr auto;
+  }
+
+
   .book-queue-card {
     align-items: stretch;
     flex-direction: column;
