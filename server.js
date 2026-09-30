@@ -15,7 +15,7 @@ let pool = DATABASE_URL ? new Pool({
   ssl: { rejectUnauthorized: false }
 }) : null;
 
-app.use(express.json());
+app.use(express.json({ limit: "20mb" }));
 
 const BOOK_TRACKER_DIR =
   process.env.BOOK_TRACKER_DIR ||
