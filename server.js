@@ -42,7 +42,7 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
     const indexPath = path.join(BOOK_TRACKER_DIR, "index.html");
     let html = fs.readFileSync(indexPath, "utf8");
 
-    const livePrelude = \`
+    const livePrelude = `
 <script>
 (() => {
   if (!("serviceWorker" in navigator)) return;
@@ -55,7 +55,7 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
   } catch {}
 })();
 </script>
-\`;
+`;
 
     html = html.includes("</head>")
       ? html.replace("</head>", livePrelude + "</head>")
