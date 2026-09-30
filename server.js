@@ -71,9 +71,28 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
     });
   }
 
+  function detectLocalState() {
+    const preferred = localState();
+    if (preferred.books.length) return preferred;
+
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || "");
+        if (parsed && Array.isArray(parsed.books) && parsed.books.length) {
+          return parsed;
+        }
+      } catch {}
+    }
+
+    return preferred;
+  }
+
   async function reconcile() {
     try {
-      const local = localState();
+      const local = detectLocalState();
       const remote = await remoteState();
       const localHasBooks = local.books.length > 0;
       const remoteHasBooks = Array.isArray(remote.books) && remote.books.length > 0;
@@ -116,6 +135,34 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
       }
     } catch {}
   }, 700);
+
+  const syncButton = document.createElement("button");
+  syncButton.type = "button";
+  syncButton.textContent = "🔄 Передати книги в «Час для себе»";
+  syncButton.style.position = "fixed";
+  syncButton.style.right = "16px";
+  syncButton.style.bottom = "16px";
+  syncButton.style.zIndex = "99999";
+  syncButton.style.padding = "10px 14px";
+  syncButton.style.borderRadius = "14px";
+  syncButton.style.border = "1px solid rgba(0,0,0,.18)";
+  syncButton.style.background = "#fff";
+  syncButton.style.boxShadow = "0 4px 16px rgba(0,0,0,.15)";
+  syncButton.onclick = async () => {
+    try {
+      const local = detectLocalState();
+      if (!local.books.length) {
+        alert("Не знайшла книги в цьому трекері.");
+        return;
+      }
+      await pushLocal(local);
+      alert("Готово: передано книг — " + local.books.length);
+    } catch (error) {
+      console.error(error);
+      alert("Не вдалося передати книги.");
+    }
+  };
+  document.body.appendChild(syncButton);
 
   reconcile();
 })();
