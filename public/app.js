@@ -285,6 +285,118 @@ async function editBookPlannerKind(bookId) {
 
 window.editBookPlannerKind = editBookPlannerKind;
 
+async function toggleSharedBookField(bookId, excerptId, field) {
+  if (IS_PUBLIC_APP) return;
+
+  const tracker = await loadBookTracker();
+  const book = tracker.books.find((item) => String(item.id) === String(bookId));
+  const excerpt = book?.excerpts?.find((item) => String(item.id) === String(excerptId));
+
+  if (!book || !excerpt) return;
+  if (!BOOK_TRACKER_CATS.some((cat) => cat.key === field)) return;
+
+  excerpt[field] = !Boolean(excerpt[field]);
+  await saveBookTracker(tracker);
+  await showSharedBookTracker();
+}
+
+window.toggleSharedBookField = toggleSharedBookField;
+
+async function showSharedBookTracker() {
+  if (IS_PUBLIC_APP) {
+    showToday();
+    return;
+  }
+
+  let tracker;
+  try {
+    tracker = await loadBookTracker();
+  } catch (error) {
+    console.error(error);
+    alert("Не вдалося прочитати трекер книг.");
+    return;
+  }
+
+  const books = (tracker.books || []).filter((book) => !book.closed);
+  const main = document.querySelector("main");
+  main.innerHTML = "";
+
+  const back = document.createElement("button");
+  back.textContent = "← Книжкова черга";
+  back.onclick = showBookQueue;
+  main.appendChild(back);
+
+  const title = document.createElement("h2");
+  title.textContent = "📖 Трекер книг";
+  main.appendChild(title);
+
+  const intro = document.createElement("p");
+  intro.textContent = "Це спільний прогрес для ноутбука й телефона.";
+  main.appendChild(intro);
+
+  const wrap = document.createElement("div");
+  wrap.className = "shared-book-tracker";
+  main.appendChild(wrap);
+
+  if (!books.length) {
+    const empty = document.createElement("p");
+    empty.textContent = "Поки книг немає.";
+    wrap.appendChild(empty);
+    return;
+  }
+
+  for (const book of books) {
+    const details = document.createElement("details");
+    details.className = "shared-book-card";
+
+    const summary = document.createElement("summary");
+    const name = document.createElement("strong");
+    name.textContent = book.title;
+    const progress = document.createElement("span");
+    progress.textContent = bookProgress(book) + "%";
+    summary.append(name, progress);
+    details.appendChild(summary);
+
+    const excerpts = document.createElement("div");
+    excerpts.className = "shared-book-excerpts";
+
+    if (!(book.excerpts || []).length) {
+      const none = document.createElement("p");
+      none.textContent = "У цій книзі ще немає уривків.";
+      excerpts.appendChild(none);
+    } else {
+      for (const excerpt of book.excerpts) {
+        const row = document.createElement("div");
+        row.className = "shared-excerpt-row";
+
+        const excerptTitle = document.createElement("strong");
+        excerptTitle.textContent = excerpt.title;
+        row.appendChild(excerptTitle);
+
+        const checks = document.createElement("div");
+        checks.className = "shared-excerpt-checks";
+
+        for (const cat of BOOK_TRACKER_CATS) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "shared-book-check" + (excerpt[cat.key] ? " is-done" : "");
+          button.textContent = (excerpt[cat.key] ? "✅ " : "☐ ") + cat.label;
+          button.onclick = () => toggleSharedBookField(book.id, excerpt.id, cat.key);
+          checks.appendChild(button);
+        }
+
+        row.appendChild(checks);
+        excerpts.appendChild(row);
+      }
+    }
+
+    details.appendChild(excerpts);
+    wrap.appendChild(details);
+  }
+}
+
+window.showSharedBookTracker = showSharedBookTracker;
+
 async function showBookQueue() {
   if (IS_PUBLIC_APP) {
     showToday();
@@ -308,7 +420,7 @@ async function showBookQueue() {
     <h2>📚 Книжкова черга</h2>
     <p>Ти обираєш книгу. Чергу уривків пам’ятає система.</p>
     <p>
-      <button onclick="window.open('/book-tracker/', '_blank')">📖 Відкрити трекер книг</button>
+      <button onclick="showSharedBookTracker()">📖 Відкрити трекер книг</button>
     </p>
 
     <div class="book-queue">
