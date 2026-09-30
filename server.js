@@ -179,6 +179,74 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
   app.use("/book-tracker", express.static(BOOK_TRACKER_DIR));
 }
 
+
+app.get("/book-sync/", (req, res) => {
+  res.type("html").send(`<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Синхронізація книг</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background:#f8f6fb; color:#24212c; display:grid; place-items:center; min-height:100vh; margin:0; }
+    .card { max-width:520px; margin:24px; background:#fff; border-radius:22px; padding:28px; box-shadow:0 12px 40px rgba(0,0,0,.08); }
+    button { border:0; border-radius:14px; padding:12px 16px; font-size:16px; cursor:pointer; background:#7455d9; color:#fff; }
+    #status { margin-top:14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>📚 Передати книги</h1>
+    <p>Ця сторінка бере книги з локального трекера і передає їх у «Час для себе».</p>
+    <button id="sync">🔄 Передати книги</button>
+    <p id="status"></p>
+  </div>
+  <script>
+    const KEY = "rainbow-books-v02";
+    const status = document.getElementById("status");
+
+    function findBooksState() {
+      try {
+        const direct = JSON.parse(localStorage.getItem(KEY) || '{"books":[]}');
+        if (direct && Array.isArray(direct.books) && direct.books.length) return direct;
+      } catch {}
+
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        try {
+          const parsed = JSON.parse(localStorage.getItem(key) || "");
+          if (parsed && Array.isArray(parsed.books) && parsed.books.length) return parsed;
+        } catch {}
+      }
+      return { books: [] };
+    }
+
+    document.getElementById("sync").onclick = async () => {
+      const state = findBooksState();
+      if (!state.books.length) {
+        status.textContent = "Не знайшла книг у локальному трекері.";
+        return;
+      }
+
+      const response = await fetch("/api/books", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(state)
+      });
+
+      if (!response.ok) {
+        status.textContent = "Не вдалося передати книги.";
+        return;
+      }
+
+      status.textContent = "Готово: передано книг — " + state.books.length;
+    };
+  </script>
+</body>
+</html>`);
+});
+
 app.use(express.static(path.join(__dirname, "public")));
 
 function isPrivateLanHost(host) {
