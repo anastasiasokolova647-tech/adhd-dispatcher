@@ -536,7 +536,7 @@ async function celebrateTask(taskId, oldFolderId) {
 
   task.folderId = celebrationFolder.id;
   task.done = true;
-  syncBookProgressForTask(task);
+  await syncBookProgressForTask(task);
   task.celebratedAt = new Date().toISOString();
 
   await saveData();
