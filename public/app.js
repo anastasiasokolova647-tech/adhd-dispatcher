@@ -13,7 +13,6 @@ const IS_PUBLIC_APP =
   window.location.hostname !== "localhost" &&
   window.location.hostname !== "127.0.0.1";
 
-const BOOK_TRACKER_KEY = "rainbow-books-v02";
 const BOOK_TRACKER_CATS = [
   { key: "plot", label: "Сюжет" },
   { key: "video", label: "Відео" },
@@ -21,19 +20,26 @@ const BOOK_TRACKER_CATS = [
   { key: "music", label: "Музика" },
 ];
 
-function loadBookTracker() {
-  try {
-    const raw = localStorage.getItem(BOOK_TRACKER_KEY);
-    const tracker = raw ? JSON.parse(raw) : { books: [] };
-    return tracker && Array.isArray(tracker.books) ? tracker : { books: [] };
-  } catch (error) {
-    console.error("Не вдалося прочитати трекер книг:", error);
-    return { books: [] };
-  }
+async function loadBookTracker() {
+  if (IS_PUBLIC_APP) return { books: [] };
+
+  const response = await fetch("/api/books", { cache: "no-store" });
+  if (!response.ok) throw new Error("Не вдалося завантажити трекер книг");
+
+  const tracker = await response.json();
+  return tracker && Array.isArray(tracker.books) ? tracker : { books: [] };
 }
 
-function saveBookTracker(tracker) {
-  localStorage.setItem(BOOK_TRACKER_KEY, JSON.stringify(tracker));
+async function saveBookTracker(tracker) {
+  if (IS_PUBLIC_APP) return;
+
+  const response = await fetch("/api/books", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(tracker),
+  });
+
+  if (!response.ok) throw new Error("Не вдалося зберегти трекер книг");
 }
 
 function getBookPlannerFields(book) {
@@ -61,7 +67,9 @@ function bookProgress(book) {
   return Math.round((done / total) * 100);
 }
 
-function ensureBookPlannerSettings(tracker, book) {
+async function ensureBookPlannerSettings(tracker, book) {
+  let changed = false;
+
   if (!["poetry", "prose"].includes(book.plannerKind)) {
     const kind = prompt(
       `"${book.title}" — це:\n1 — Поезія: уривки можна брати навмання\n2 — Проза: тільки по порядку`,
@@ -75,6 +83,7 @@ function ensureBookPlannerSettings(tracker, book) {
     }
 
     book.plannerKind = kind === "1" ? "poetry" : "prose";
+    changed = true;
   }
 
   if (!Array.isArray(book.plannerFields) || !book.plannerFields.length) {
@@ -89,12 +98,14 @@ function ensureBookPlannerSettings(tracker, book) {
 
     if (answer === null) return false;
 
-    const indexes = [...new Set(
-      answer
-        .split(",")
-        .map((part) => Number(part.trim()))
-        .filter((n) => n >= 1 && n <= BOOK_TRACKER_CATS.length)
-    )];
+    const indexes = [
+      ...new Set(
+        answer
+          .split(",")
+          .map((part) => Number(part.trim()))
+          .filter((n) => n >= 1 && n <= BOOK_TRACKER_CATS.length),
+      ),
+    ];
 
     if (!indexes.length) {
       alert("Обери хоча б один етап.");
@@ -102,16 +113,17 @@ function ensureBookPlannerSettings(tracker, book) {
     }
 
     book.plannerFields = indexes.map((n) => BOOK_TRACKER_CATS[n - 1].key);
+    changed = true;
   }
 
-  saveBookTracker(tracker);
+  if (changed) await saveBookTracker(tracker);
   return true;
 }
 
-function syncBookProgressForTask(task) {
+async function syncBookProgressForTask(task) {
   if (IS_PUBLIC_APP || !task?.bookTracker) return;
 
-  const tracker = loadBookTracker();
+  const tracker = await loadBookTracker();
   const link = task.bookTracker;
   const book = tracker.books.find((item) => item.id === link.bookId);
   const excerpt = book?.excerpts?.find((item) => item.id === link.excerptId);
@@ -124,7 +136,7 @@ function syncBookProgressForTask(task) {
     }
   }
 
-  saveBookTracker(tracker);
+  await saveBookTracker(tracker);
 }
 
 async function planBookExcerpt(bookId) {
@@ -132,18 +144,19 @@ async function planBookExcerpt(bookId) {
 
   await loadData();
 
-  const tracker = loadBookTracker();
+  const tracker = await loadBookTracker();
   const book = tracker.books.find((item) => item.id === bookId && !item.closed);
+
   if (!book) {
     alert("Не знайшла цю книгу в трекері.");
     return;
   }
 
-  if (!ensureBookPlannerSettings(tracker, book)) return;
+  if (!(await ensureBookPlannerSettings(tracker, book))) return;
 
   const fields = getBookPlannerFields(book);
   const unfinished = (book.excerpts || []).filter(
-    (excerpt) => !bookExcerptDone(excerpt, fields)
+    (excerpt) => !bookExcerptDone(excerpt, fields),
   );
 
   if (!unfinished.length) {
@@ -159,9 +172,9 @@ async function planBookExcerpt(bookId) {
   if (!excerpt) return;
 
   const remaining = fields.filter((key) => !excerpt[key]);
-  const remainingCats = remaining.map((key) =>
-    BOOK_TRACKER_CATS.find((cat) => cat.key === key)
-  ).filter(Boolean);
+  const remainingCats = remaining
+    .map((key) => BOOK_TRACKER_CATS.find((cat) => cat.key === key))
+    .filter(Boolean);
 
   const menu = remainingCats
     .map((cat, index) => `${index + 1} — ${cat.label}`)
@@ -169,19 +182,22 @@ async function planBookExcerpt(bookId) {
 
   const answer = prompt(
     `📚 ${book.title}\n«${excerpt.title}»\n\nЩо зробимо цього разу?\n${menu}\n\nВведи номери через кому. Enter — усі незавершені етапи.`,
-    ""
+    "",
   );
 
   if (answer === null) return;
 
   let chosenFields = remaining;
+
   if (answer.trim()) {
-    const indexes = [...new Set(
-      answer
-        .split(",")
-        .map((part) => Number(part.trim()))
-        .filter((n) => n >= 1 && n <= remainingCats.length)
-    )];
+    const indexes = [
+      ...new Set(
+        answer
+          .split(",")
+          .map((part) => Number(part.trim()))
+          .filter((n) => n >= 1 && n <= remainingCats.length),
+      ),
+    ];
 
     if (!indexes.length) {
       alert("Не зрозуміла вибір етапів.");
@@ -195,7 +211,10 @@ async function planBookExcerpt(bookId) {
     .map((key) => BOOK_TRACKER_CATS.find((cat) => cat.key === key)?.label)
     .filter(Boolean);
 
-  const taskText = `📚 ${book.title} — ${excerpt.title}${labels.length ? " · " + labels.join(" + ") : ""}`;
+  const taskText = `📚 ${book.title} — ${excerpt.title}${
+    labels.length ? " · " + labels.join(" + ") : ""
+  }`;
+
   const folder = askInboxFolder(taskText);
   if (!folder) return;
 
@@ -227,7 +246,16 @@ async function showBookQueue() {
   }
 
   await loadData();
-  const tracker = loadBookTracker();
+
+  let tracker;
+  try {
+    tracker = await loadBookTracker();
+  } catch (error) {
+    console.error(error);
+    alert("Не вдалося прочитати книжкову чергу.");
+    return;
+  }
+
   const books = (tracker.books || []).filter((book) => !book.closed);
 
   document.querySelector("main").innerHTML = `
@@ -240,7 +268,9 @@ async function showBookQueue() {
     <div class="book-queue">
       ${
         books.length
-          ? books.map((book) => `
+          ? books
+              .map(
+                (book) => `
               <article class="book-queue-card">
                 <div>
                   <strong>${escapeInboxHtml(book.title)}</strong>
@@ -254,12 +284,13 @@ async function showBookQueue() {
                 </div>
                 <button onclick="planBookExcerpt('${book.id}')">Дай мені уривок</button>
               </article>
-            `).join("")
+            `,
+              )
+              .join("")
           : `
               <p>
-                Тут поки не видно книг. Відкрий трекер кнопкою вище й один раз
-                імпортуй у нього резервну копію — після цього «Час для себе»
-                і трекер матимуть спільну пам’ять.
+                Поки книжкова черга порожня. Відкрий трекер кнопкою вище:
+                він сам передасть сюди твої локальні книги.
               </p>
             `
       }
@@ -279,7 +310,6 @@ if (document.readyState === "loading") {
 } else {
   setupLocalBookQueue();
 }
-
 
 async function loadData() {
   if (IS_PUBLIC_APP) {
@@ -868,7 +898,7 @@ async function toggleTask(taskId, folderId) {
   if (!task) return;
 
   task.done = !task.done;
-  if (task.done) syncBookProgressForTask(task);
+  if (task.done) await syncBookProgressForTask(task);
   await saveData();
   openFolder(folderId);
 }
@@ -1050,7 +1080,7 @@ async function toggleWeekTask(taskId) {
   if (!task) return;
 
   task.done = true;
-  syncBookProgressForTask(task);
+  await syncBookProgressForTask(task);
   await saveData();
   showWeek();
 }
@@ -1340,7 +1370,7 @@ async function toggleTodayTask(taskId) {
   });
 
   task.done = true;
-  syncBookProgressForTask(task);
+  await syncBookProgressForTask(task);
   await saveData();
 
   setTimeout(() => {
