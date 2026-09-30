@@ -200,62 +200,130 @@ async function celebrateTask(taskId, oldFolderId) {
 window.celebrateTask = celebrateTask;
 
 async function addTask(folderId) {
-  const text = prompt("Що треба зробити?");
-  if (!text || !text.trim()) return;
+  try {
+    await loadData();
 
-  const answer = prompt(
-    "Тип справи:\n1 — Регулярне: домовленість\n2 — Регулярне: дедлайн\n3 — Регулярне: власний дедлайн\n4 — Одноразове",
-    "4"
-  );
+    if (!Array.isArray(data.tasks)) data.tasks = [];
 
-  const types = {
-    "1": "agreement",
-    "2": "externalDeadline",
-    "3": "ownDeadline",
-    "4": "oneTime"
-  };
+    const folder = data.folders.find(f => f.id === folderId);
+    if (!folder) {
+      alert("Не знайшла папку для цієї справи. Відкрий папку ще раз.");
+      return;
+    }
 
-  if (!types[answer]) {
-    alert("Обери 1, 2, 3 або 4.");
-    return;
-  }
+    const text = prompt("Що треба зробити?");
+    if (!text || !text.trim()) return;
 
-  const task = {
-    id: Date.now(),
-    folderId,
-    text: text.trim(),
-    type: types[answer],
-    done: false
-  };
-
-  if (task.type === "agreement") {
-    const day = prompt(
-      "День тижня:\n1 — Понеділок\n2 — Вівторок\n3 — Середа\n4 — Четвер\n5 — П'ятниця\n6 — Субота\n7 — Неділя"
+    const answer = prompt(
+      "Тип справи:\n1 — Регулярне: домовленість\n2 — Регулярне: дедлайн\n3 — Регулярне: власний дедлайн\n4 — Одноразове",
+      "4"
     );
 
-    if (!["1","2","3","4","5","6","7"].includes(day)) return;
+    const types = {
+      "1": "agreement",
+      "2": "externalDeadline",
+      "3": "ownDeadline",
+      "4": "oneTime"
+    };
 
-    const time = prompt("О котрій годині? Наприклад 19:00", "19:00");
-    if (!time || !/^\d{2}:\d{2}$/.test(time.trim())) return;
+    if (!types[answer]) {
+      alert("Обери 1, 2, 3 або 4.");
+      return;
+    }
 
-    task.repeat = "weekly";
-    task.weekday = Number(day);
-    task.time = time.trim();
+    const task = {
+      id: Date.now(),
+      folderId,
+      text: text.trim(),
+      type: types[answer],
+      done: false
+    };
+
+    if (task.type === "agreement") {
+      const day = prompt(
+        "День тижня:\n1 — Понеділок\n2 — Вівторок\n3 — Середа\n4 — Четвер\n5 — П'ятниця\n6 — Субота\n7 — Неділя"
+      );
+
+      if (!["1","2","3","4","5","6","7"].includes(day)) return;
+
+      const time = prompt("О котрій годині? Наприклад 19:00", "19:00");
+      if (!time || !/^\d{2}:\d{2}$/.test(time.trim())) {
+        alert("Час введи у форматі 19:00.");
+        return;
+      }
+
+      task.repeat = "weekly";
+      task.weekday = Number(day);
+      task.time = time.trim();
+    }
+
+    if (task.type === "externalDeadline" || task.type === "ownDeadline") {
+      const date = prompt(
+        "Дата дедлайну у форматі РРРР-ММ-ДД:",
+        formatLocalDate(new Date())
+      );
+
+      if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
+        alert("Дата має бути у форматі РРРР-ММ-ДД.");
+        return;
+      }
+
+      task.date = date.trim();
+
+      const time = prompt(
+        "Час (необов'язково). Наприклад 18:00. Можна лишити порожнім:",
+        ""
+      );
+
+      if (time && !/^\d{2}:\d{2}$/.test(time.trim())) {
+        alert("Час введи у форматі 18:00 або лиши порожнім.");
+        return;
+      }
+
+      if (time?.trim()) task.time = time.trim();
+    }
+
+    if (task.type === "oneTime") {
+      const date = prompt(
+        "Дата справи (необов'язково) у форматі РРРР-ММ-ДД. Можна лишити порожнім:",
+        ""
+      );
+
+      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
+        alert("Дата має бути у форматі РРРР-ММ-ДД або порожня.");
+        return;
+      }
+
+      if (date?.trim()) task.date = date.trim();
+
+      const time = prompt(
+        "Час (необов'язково). Наприклад 15:00. Можна лишити порожнім:",
+        ""
+      );
+
+      if (time && !/^\d{2}:\d{2}$/.test(time.trim())) {
+        alert("Час введи у форматі 15:00 або лиши порожнім.");
+        return;
+      }
+
+      if (time?.trim()) task.time = time.trim();
+    }
+
+    data.tasks.push(task);
+    await saveData();
+
+    await loadData();
+    const saved = data.tasks.some(t => t.id === task.id);
+
+    if (!saved) {
+      throw new Error("Справу не знайдено після збереження");
+    }
+
+    openFolder(folderId);
+  } catch (error) {
+    console.error("Не вдалося додати справу:", error);
+    alert("Справу не вдалося додати. Дані не стерті — просто спробуй ще раз.");
   }
-
-  if (task.type === "externalDeadline" || task.type === "ownDeadline") {
-    const date = prompt(
-      "Дата дедлайну у форматі РРРР-ММ-ДД:",
-      new Date().toISOString().slice(0, 10)
-    );
-
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) return;
-    task.date = date.trim();
-  }
-
-  data.tasks.push(task);
-  await saveData();
-  openFolder(folderId);
 }
 async function renameFolder(id) {
   const folder = data.folders.find(f => f.id === id);
