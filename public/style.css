@@ -264,3 +264,30 @@ small {
     font-size: 12px;
   }
 }
+
+
+.inline-add-task {
+  margin: 0 0 12px;
+}
+
+.calendar-date-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.calendar-date-row .calendar-date {
+  margin-bottom: 0;
+}
+
+.calendar-add-task {
+  min-width: 0;
+  padding: 3px 7px;
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 1;
+  box-shadow: none;
+  background: rgba(255,239,245,.72);
+}
