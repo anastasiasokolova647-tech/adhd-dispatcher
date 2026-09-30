@@ -13,6 +13,274 @@ const IS_PUBLIC_APP =
   window.location.hostname !== "localhost" &&
   window.location.hostname !== "127.0.0.1";
 
+const BOOK_TRACKER_KEY = "rainbow-books-v02";
+const BOOK_TRACKER_CATS = [
+  { key: "plot", label: "Сюжет" },
+  { key: "video", label: "Відео" },
+  { key: "obsidian", label: "Obsidian" },
+  { key: "music", label: "Музика" },
+];
+
+function loadBookTracker() {
+  try {
+    const raw = localStorage.getItem(BOOK_TRACKER_KEY);
+    const tracker = raw ? JSON.parse(raw) : { books: [] };
+    return tracker && Array.isArray(tracker.books) ? tracker : { books: [] };
+  } catch (error) {
+    console.error("Не вдалося прочитати трекер книг:", error);
+    return { books: [] };
+  }
+}
+
+function saveBookTracker(tracker) {
+  localStorage.setItem(BOOK_TRACKER_KEY, JSON.stringify(tracker));
+}
+
+function getBookPlannerFields(book) {
+  const valid = new Set(BOOK_TRACKER_CATS.map((cat) => cat.key));
+  const fields = Array.isArray(book.plannerFields)
+    ? book.plannerFields.filter((key) => valid.has(key))
+    : [];
+  return fields.length ? fields : BOOK_TRACKER_CATS.map((cat) => cat.key);
+}
+
+function bookExcerptDone(excerpt, fields) {
+  return fields.every((key) => Boolean(excerpt[key]));
+}
+
+function bookProgress(book) {
+  const fields = getBookPlannerFields(book);
+  if (!book.excerpts?.length || !fields.length) return 0;
+
+  const total = book.excerpts.length * fields.length;
+  const done = book.excerpts.reduce(
+    (sum, excerpt) => sum + fields.filter((key) => excerpt[key]).length,
+    0
+  );
+
+  return Math.round((done / total) * 100);
+}
+
+function ensureBookPlannerSettings(tracker, book) {
+  if (!["poetry", "prose"].includes(book.plannerKind)) {
+    const kind = prompt(
+      `"${book.title}" — це:\n1 — Поезія: уривки можна брати навмання\n2 — Проза: тільки по порядку`,
+      "2"
+    );
+
+    if (kind === null) return false;
+    if (!["1", "2"].includes(kind)) {
+      alert("Обери 1 для поезії або 2 для прози.");
+      return false;
+    }
+
+    book.plannerKind = kind === "1" ? "poetry" : "prose";
+  }
+
+  if (!Array.isArray(book.plannerFields) || !book.plannerFields.length) {
+    const menu = BOOK_TRACKER_CATS
+      .map((cat, index) => `${index + 1} — ${cat.label}`)
+      .join("\n");
+
+    const answer = prompt(
+      `Які етапи використовує ця книга?\n${menu}\n\nМожна кілька через кому, наприклад 1,3.`,
+      "1,2,3,4"
+    );
+
+    if (answer === null) return false;
+
+    const indexes = [...new Set(
+      answer
+        .split(",")
+        .map((part) => Number(part.trim()))
+        .filter((n) => n >= 1 && n <= BOOK_TRACKER_CATS.length)
+    )];
+
+    if (!indexes.length) {
+      alert("Обери хоча б один етап.");
+      return false;
+    }
+
+    book.plannerFields = indexes.map((n) => BOOK_TRACKER_CATS[n - 1].key);
+  }
+
+  saveBookTracker(tracker);
+  return true;
+}
+
+function syncBookProgressForTask(task) {
+  if (IS_PUBLIC_APP || !task?.bookTracker) return;
+
+  const tracker = loadBookTracker();
+  const link = task.bookTracker;
+  const book = tracker.books.find((item) => item.id === link.bookId);
+  const excerpt = book?.excerpts?.find((item) => item.id === link.excerptId);
+
+  if (!book || !excerpt) return;
+
+  for (const key of link.fields || []) {
+    if (BOOK_TRACKER_CATS.some((cat) => cat.key === key)) {
+      excerpt[key] = true;
+    }
+  }
+
+  saveBookTracker(tracker);
+}
+
+async function planBookExcerpt(bookId) {
+  if (IS_PUBLIC_APP) return;
+
+  await loadData();
+
+  const tracker = loadBookTracker();
+  const book = tracker.books.find((item) => item.id === bookId && !item.closed);
+  if (!book) {
+    alert("Не знайшла цю книгу в трекері.");
+    return;
+  }
+
+  if (!ensureBookPlannerSettings(tracker, book)) return;
+
+  const fields = getBookPlannerFields(book);
+  const unfinished = (book.excerpts || []).filter(
+    (excerpt) => !bookExcerptDone(excerpt, fields)
+  );
+
+  if (!unfinished.length) {
+    alert(`У "${book.title}" усі уривки вже завершені 💗`);
+    return;
+  }
+
+  const excerpt =
+    book.plannerKind === "poetry"
+      ? unfinished[Math.floor(Math.random() * unfinished.length)]
+      : (book.excerpts || []).find((item) => !bookExcerptDone(item, fields));
+
+  if (!excerpt) return;
+
+  const remaining = fields.filter((key) => !excerpt[key]);
+  const remainingCats = remaining.map((key) =>
+    BOOK_TRACKER_CATS.find((cat) => cat.key === key)
+  ).filter(Boolean);
+
+  const menu = remainingCats
+    .map((cat, index) => `${index + 1} — ${cat.label}`)
+    .join("\n");
+
+  const answer = prompt(
+    `📚 ${book.title}\n«${excerpt.title}»\n\nЩо зробимо цього разу?\n${menu}\n\nВведи номери через кому. Enter — усі незавершені етапи.`,
+    ""
+  );
+
+  if (answer === null) return;
+
+  let chosenFields = remaining;
+  if (answer.trim()) {
+    const indexes = [...new Set(
+      answer
+        .split(",")
+        .map((part) => Number(part.trim()))
+        .filter((n) => n >= 1 && n <= remainingCats.length)
+    )];
+
+    if (!indexes.length) {
+      alert("Не зрозуміла вибір етапів.");
+      return;
+    }
+
+    chosenFields = indexes.map((n) => remainingCats[n - 1].key);
+  }
+
+  const labels = chosenFields
+    .map((key) => BOOK_TRACKER_CATS.find((cat) => cat.key === key)?.label)
+    .filter(Boolean);
+
+  const taskText = `📚 ${book.title} — ${excerpt.title}${labels.length ? " · " + labels.join(" + ") : ""}`;
+  const folder = askInboxFolder(taskText);
+  if (!folder) return;
+
+  const task = {
+    id: Date.now(),
+    folderId: folder.id,
+    text: taskText,
+    type: "oneTime",
+    date: formatLocalDate(new Date()),
+    done: false,
+    bookTracker: {
+      bookId: book.id,
+      excerptId: excerpt.id,
+      fields: chosenFields,
+    },
+  };
+
+  data.tasks.push(task);
+  await saveData();
+  showToday();
+}
+
+window.planBookExcerpt = planBookExcerpt;
+
+async function showBookQueue() {
+  if (IS_PUBLIC_APP) {
+    showToday();
+    return;
+  }
+
+  await loadData();
+  const tracker = loadBookTracker();
+  const books = (tracker.books || []).filter((book) => !book.closed);
+
+  document.querySelector("main").innerHTML = `
+    <h2>📚 Книжкова черга</h2>
+    <p>Ти обираєш книгу. Чергу уривків пам’ятає система.</p>
+    <p>
+      <button onclick="window.open('/book-tracker/', '_blank')">📖 Відкрити трекер книг</button>
+    </p>
+
+    <div class="book-queue">
+      ${
+        books.length
+          ? books.map((book) => `
+              <article class="book-queue-card">
+                <div>
+                  <strong>${escapeInboxHtml(book.title)}</strong>
+                  <small>${
+                    book.plannerKind === "poetry"
+                      ? "🎲 Поезія"
+                      : book.plannerKind === "prose"
+                        ? "▶️ Проза"
+                        : "Тип ще не заданий"
+                  } · ${bookProgress(book)}%</small>
+                </div>
+                <button onclick="planBookExcerpt('${book.id}')">Дай мені уривок</button>
+              </article>
+            `).join("")
+          : `
+              <p>
+                Тут поки не видно книг. Відкрий трекер кнопкою вище й один раз
+                імпортуй у нього резервну копію — після цього «Час для себе»
+                і трекер матимуть спільну пам’ять.
+              </p>
+            `
+      }
+    </div>
+  `;
+}
+
+window.showBookQueue = showBookQueue;
+
+function setupLocalBookQueue() {
+  const button = document.getElementById("bookQueueNav");
+  if (button) button.hidden = IS_PUBLIC_APP;
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", setupLocalBookQueue);
+} else {
+  setupLocalBookQueue();
+}
+
+
 async function loadData() {
   if (IS_PUBLIC_APP) {
     const saved = localStorage.getItem(PUBLIC_STORAGE_KEY);
@@ -189,6 +457,7 @@ async function celebrateTask(taskId, oldFolderId) {
 
   task.folderId = celebrationFolder.id;
   task.done = true;
+  syncBookProgressForTask(task);
   task.celebratedAt = new Date().toISOString();
 
   await saveData();
@@ -599,6 +868,7 @@ async function toggleTask(taskId, folderId) {
   if (!task) return;
 
   task.done = !task.done;
+  if (task.done) syncBookProgressForTask(task);
   await saveData();
   openFolder(folderId);
 }
@@ -780,6 +1050,7 @@ async function toggleWeekTask(taskId) {
   if (!task) return;
 
   task.done = true;
+  syncBookProgressForTask(task);
   await saveData();
   showWeek();
 }
@@ -1069,6 +1340,7 @@ async function toggleTodayTask(taskId) {
   });
 
   task.done = true;
+  syncBookProgressForTask(task);
   await saveData();
 
   setTimeout(() => {
