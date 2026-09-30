@@ -619,6 +619,91 @@ function formatLocalDate(date) {
     String(date.getDate()).padStart(2, "0");
 }
 
+async function addTaskForDate(dateKey, weekday, returnView) {
+  try {
+    await loadData();
+
+    if (!Array.isArray(data.tasks)) data.tasks = [];
+
+    const text = prompt("Що треба зробити?");
+    if (!text || !text.trim()) return;
+
+    const folder = askInboxFolder(text.trim());
+    if (!folder) return;
+
+    const answer = prompt(
+      "Тип справи:\n1 — Регулярне: домовленість\n2 — Регулярне: дедлайн\n3 — Регулярне: власний дедлайн\n4 — Одноразове",
+      "4"
+    );
+
+    const types = {
+      "1": "agreement",
+      "2": "externalDeadline",
+      "3": "ownDeadline",
+      "4": "oneTime"
+    };
+
+    if (!types[answer]) {
+      alert("Обери 1, 2, 3 або 4.");
+      return;
+    }
+
+    const task = {
+      id: Date.now(),
+      folderId: folder.id,
+      text: text.trim(),
+      type: types[answer],
+      done: false
+    };
+
+    if (task.type === "agreement") {
+      task.repeat = "weekly";
+      task.weekday = Number(weekday);
+
+      const time = prompt("О котрій годині? Наприклад 19:00", "19:00");
+      if (!time || !/^\d{2}:\d{2}$/.test(time.trim())) {
+        alert("Час введи у форматі 19:00.");
+        return;
+      }
+      task.time = time.trim();
+    } else {
+      task.date = dateKey;
+
+      const time = prompt(
+        "Час (необов'язково). Наприклад 15:00. Можна лишити порожнім:",
+        ""
+      );
+
+      if (time && !/^\d{2}:\d{2}$/.test(time.trim())) {
+        alert("Час введи у форматі 15:00 або лиши порожнім.");
+        return;
+      }
+
+      if (time?.trim()) task.time = time.trim();
+    }
+
+    data.tasks.push(task);
+    await saveData();
+
+    await loadData();
+    const saved = data.tasks.some(t => t.id === task.id);
+    if (!saved) throw new Error("Справу не знайдено після збереження");
+
+    if (returnView === "today") {
+      showToday();
+    } else if (returnView === "week") {
+      showWeek();
+    } else {
+      showCalendar();
+    }
+  } catch (error) {
+    console.error("Не вдалося додати справу з календаря:", error);
+    alert("Справу не вдалося додати. Дані не стерті.");
+  }
+}
+
+window.addTaskForDate = addTaskForDate;
+
 async function showWeek() {
   await loadData();
 
@@ -664,6 +749,7 @@ async function showWeek() {
     return `
       <section>
         <h3>${dayName} · ${dateLabel}</h3>
+        <button class="inline-add-task" onclick="addTaskForDate('${dateKey}', ${weekday}, 'week')">➕ Додати</button>
         <div>
           ${tasks.length
             ? tasks.map(task => `
@@ -780,7 +866,15 @@ async function showCalendar(year, month) {
 
     return `
       <div class="calendar-day ${dateKey === todayKey ? "calendar-day-today" : ""}">
-        <div class="calendar-date">${dayNumber}</div>
+        <div class="calendar-date-row">
+          <div class="calendar-date">${dayNumber}</div>
+          <button
+            class="calendar-add-task"
+            onclick="addTaskForDate('${dateKey}', ${date.getDay() === 0 ? 7 : date.getDay()}, 'calendar')"
+            title="Додати справу на цей день"
+            aria-label="Додати справу на ${dayNumber} число"
+          >＋</button>
+        </div>
         <div class="calendar-tasks">${taskHtml}</div>
       </div>
     `;
@@ -862,6 +956,7 @@ async function showToday() {
   document.querySelector("main").innerHTML = `
     <h2>☀️ Сьогодні</h2>
     <h3>${dateText}</h3>
+    <button class="inline-add-task" onclick="addTaskForDate('${today}', ${weekday}, 'today')">➕ Додати на сьогодні</button>
 
     <div>
       ${todayTasks.length
