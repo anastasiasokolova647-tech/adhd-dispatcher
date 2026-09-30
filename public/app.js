@@ -536,6 +536,102 @@ async function toggleTask(taskId, folderId) {
 }
 
 window.toggleTask = toggleTask;
+
+function getWeekMonday(date = new Date()) {
+  const d = new Date(date);
+  const day = d.getDay() === 0 ? 7 : d.getDay();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - day + 1);
+  return d;
+}
+
+function formatLocalDate(date) {
+  return date.getFullYear() + "-" +
+    String(date.getMonth() + 1).padStart(2, "0") + "-" +
+    String(date.getDate()).padStart(2, "0");
+}
+
+async function showWeek() {
+  await loadData();
+
+  const dayNames = [
+    "Понеділок",
+    "Вівторок",
+    "Середа",
+    "Четвер",
+    "П'ятниця",
+    "Субота",
+    "Неділя"
+  ];
+
+  const monday = getWeekMonday();
+
+  const sections = dayNames.map((dayName, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+
+    const weekday = index + 1;
+    const dateKey = formatLocalDate(date);
+
+    const tasks = data.tasks
+      .filter(task => {
+        if (task.done) return false;
+
+        const weeklyTask =
+          task.type === "agreement" &&
+          task.repeat === "weekly" &&
+          task.weekday === weekday;
+
+        const datedTask = task.date === dateKey;
+
+        return weeklyTask || datedTask;
+      })
+      .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+
+    const dateLabel = date.toLocaleDateString("uk-UA", {
+      day: "numeric",
+      month: "short"
+    });
+
+    return `
+      <section>
+        <h3>${dayName} · ${dateLabel}</h3>
+        <div>
+          ${tasks.length
+            ? tasks.map(task => `
+                <p>
+                  <button onclick="toggleWeekTask(${task.id})">☐</button>
+                  ${task.time ? `<strong>${task.time}</strong> — ` : ""}
+                  ${task.text}
+                  <small>${typeNames[task.type] || ""}</small>
+                </p>
+              `).join("")
+            : "<p>Тут поки тихо 🌿</p>"
+          }
+        </div>
+      </section>
+    `;
+  }).join("");
+
+  document.querySelector("main").innerHTML = `
+    <h2>🗓 Тиждень</h2>
+    ${sections}
+  `;
+}
+
+window.showWeek = showWeek;
+
+async function toggleWeekTask(taskId) {
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task) return;
+
+  task.done = true;
+  await saveData();
+  showWeek();
+}
+
+window.toggleWeekTask = toggleWeekTask;
+
 async function showToday() {
   await loadData();
 
