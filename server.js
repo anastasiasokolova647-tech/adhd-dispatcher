@@ -7,6 +7,7 @@ const { Pool } = require("pg");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, "data.json");
+const BOOKS_DATA_FILE = path.join(__dirname, "books-data.json");
 const DATABASE_URL = process.env.DATABASE_URL;
 
 let pool = DATABASE_URL ? new Pool({
@@ -20,7 +21,114 @@ const BOOK_TRACKER_DIR =
   process.env.BOOK_TRACKER_DIR ||
   path.join(os.homedir(), "Downloads", "Трекер прогресу по книгах");
 
+function readBooksData() {
+  if (!fs.existsSync(BOOKS_DATA_FILE)) return { books: [] };
+
+  try {
+    const value = JSON.parse(fs.readFileSync(BOOKS_DATA_FILE, "utf8"));
+    return value && Array.isArray(value.books) ? value : { books: [] };
+  } catch {
+    return { books: [] };
+  }
+}
+
+function writeBooksData(value) {
+  const clean = value && Array.isArray(value.books) ? value : { books: [] };
+  fs.writeFileSync(BOOKS_DATA_FILE, JSON.stringify(clean, null, 2), "utf8");
+}
+
 if (fs.existsSync(BOOK_TRACKER_DIR)) {
+  app.get("/book-tracker/", (req, res) => {
+    const indexPath = path.join(BOOK_TRACKER_DIR, "index.html");
+    let html = fs.readFileSync(indexPath, "utf8");
+
+    const bridge = `
+<script>
+(() => {
+  const KEY = "rainbow-books-v02";
+  let lastLocal = localStorage.getItem(KEY) || "";
+
+  function localState() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(KEY) || '{"books":[]}');
+      return parsed && Array.isArray(parsed.books) ? parsed : { books: [] };
+    } catch {
+      return { books: [] };
+    }
+  }
+
+  async function remoteState() {
+    const response = await fetch("/api/books", { cache: "no-store" });
+    if (!response.ok) return { books: [] };
+    return response.json();
+  }
+
+  async function pushLocal(value) {
+    await fetch("/api/books", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    });
+  }
+
+  async function reconcile() {
+    try {
+      const local = localState();
+      const remote = await remoteState();
+      const localHasBooks = local.books.length > 0;
+      const remoteHasBooks = Array.isArray(remote.books) && remote.books.length > 0;
+
+      if (!remoteHasBooks && localHasBooks) {
+        await pushLocal(local);
+        lastLocal = JSON.stringify(local);
+        return;
+      }
+
+      if (remoteHasBooks) {
+        const remoteJson = JSON.stringify(remote);
+        const localJson = JSON.stringify(local);
+
+        if (remoteJson !== localJson) {
+          localStorage.setItem(KEY, remoteJson);
+          lastLocal = remoteJson;
+          location.reload();
+        }
+      }
+    } catch (error) {
+      console.error("Book tracker bridge:", error);
+    }
+  }
+
+  window.addEventListener("focus", reconcile);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) reconcile();
+  });
+
+  setInterval(async () => {
+    const current = localStorage.getItem(KEY) || "";
+    if (!current || current === lastLocal) return;
+
+    lastLocal = current;
+    try {
+      const parsed = JSON.parse(current);
+      if (parsed && Array.isArray(parsed.books)) {
+        await pushLocal(parsed);
+      }
+    } catch {}
+  }, 700);
+
+  reconcile();
+})();
+</script>
+`;
+
+    html = html.includes("</body>")
+      ? html.replace("</body>", bridge + "</body>")
+      : html + bridge;
+
+    res.type("html").send(html);
+  });
+
   app.use("/book-tracker", express.static(BOOK_TRACKER_DIR));
 }
 
@@ -76,6 +184,26 @@ app.get("/api/data", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Не вдалося прочитати дані" });
+  }
+});
+
+app.get("/api/books", (req, res) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json(readBooksData());
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Не вдалося прочитати трекер книг" });
+  }
+});
+
+app.post("/api/books", (req, res) => {
+  try {
+    writeBooksData(req.body);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Не вдалося зберегти трекер книг" });
   }
 });
 
