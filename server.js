@@ -42,11 +42,34 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
     const indexPath = path.join(BOOK_TRACKER_DIR, "index.html");
     let html = fs.readFileSync(indexPath, "utf8");
 
+    const livePrelude = \`
+<script>
+(() => {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.getRegistrations()
+    .then((regs) => regs.forEach((reg) => reg.unregister()))
+    .catch(() => {});
+  try {
+    navigator.serviceWorker.register = () =>
+      Promise.reject(new Error("Service worker disabled for live local tracker"));
+  } catch {}
+})();
+</script>
+\`;
+
+    html = html.includes("</head>")
+      ? html.replace("</head>", livePrelude + "</head>")
+      : livePrelude + html;
+
     const bridge = `
 <script>
 (() => {
   const KEY = "rainbow-books-v02";
-  let lastLocal = localStorage.getItem(KEY) || "";
+  const nativeSetItem = Storage.prototype.setItem;
+  let applyingRemote = false;
+  let pushing = false;
+  let pushTimer = null;
+  let lastLocalMutation = 0;
 
   function localState() {
     try {
@@ -57,20 +80,6 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
     }
   }
 
-  async function remoteState() {
-    const response = await fetch("/api/books", { cache: "no-store" });
-    if (!response.ok) return { books: [] };
-    return response.json();
-  }
-
-  async function pushLocal(value) {
-    await fetch("/api/books", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(value),
-    });
-  }
-
   function detectLocalState() {
     const preferred = localState();
     if (preferred.books.length) return preferred;
@@ -78,93 +87,89 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
       if (!key) continue;
-
       try {
         const parsed = JSON.parse(localStorage.getItem(key) || "");
-        if (parsed && Array.isArray(parsed.books) && parsed.books.length) {
-          return parsed;
-        }
+        if (parsed && Array.isArray(parsed.books) && parsed.books.length) return parsed;
       } catch {}
     }
 
     return preferred;
   }
 
-  async function reconcile() {
+  async function remoteState() {
+    const response = await fetch("/api/books", { cache: "no-store" });
+    if (!response.ok) throw new Error("books GET failed");
+    const value = await response.json();
+    return value && Array.isArray(value.books) ? value : { books: [] };
+  }
+
+  async function pushLocal(value) {
+    pushing = true;
     try {
-      const local = detectLocalState();
-      const remote = await remoteState();
-      const localHasBooks = local.books.length > 0;
-      const remoteHasBooks = Array.isArray(remote.books) && remote.books.length > 0;
-
-      if (!remoteHasBooks && localHasBooks) {
-        await pushLocal(local);
-        lastLocal = JSON.stringify(local);
-        return;
-      }
-
-      if (remoteHasBooks) {
-        const remoteJson = JSON.stringify(remote);
-        const localJson = JSON.stringify(local);
-
-        if (remoteJson !== localJson) {
-          localStorage.setItem(KEY, remoteJson);
-          lastLocal = remoteJson;
-          location.reload();
-        }
-      }
-    } catch (error) {
-      console.error("Book tracker bridge:", error);
+      const response = await fetch("/api/books", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(value),
+      });
+      if (!response.ok) throw new Error("books POST failed");
+    } finally {
+      pushing = false;
     }
   }
 
-  window.addEventListener("focus", reconcile);
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) reconcile();
-  });
+  function schedulePush(rawValue) {
+    clearTimeout(pushTimer);
+    lastLocalMutation = Date.now();
 
-  setInterval(async () => {
-    const current = localStorage.getItem(KEY) || "";
-    if (!current || current === lastLocal) return;
-
-    lastLocal = current;
-    try {
-      const parsed = JSON.parse(current);
-      if (parsed && Array.isArray(parsed.books)) {
-        await pushLocal(parsed);
+    pushTimer = setTimeout(async () => {
+      try {
+        const parsed = JSON.parse(rawValue || '{"books":[]}');
+        if (parsed && Array.isArray(parsed.books)) await pushLocal(parsed);
+      } catch (error) {
+        console.error("Book tracker live push:", error);
       }
-    } catch {}
-  }, 700);
+    }, 120);
+  }
 
-  const syncButton = document.createElement("button");
-  syncButton.type = "button";
-  syncButton.textContent = "🔄 Передати книги в «Час для себе»";
-  syncButton.style.position = "fixed";
-  syncButton.style.right = "16px";
-  syncButton.style.bottom = "16px";
-  syncButton.style.zIndex = "99999";
-  syncButton.style.padding = "10px 14px";
-  syncButton.style.borderRadius = "14px";
-  syncButton.style.border = "1px solid rgba(0,0,0,.18)";
-  syncButton.style.background = "#fff";
-  syncButton.style.boxShadow = "0 4px 16px rgba(0,0,0,.15)";
-  syncButton.onclick = async () => {
-    try {
-      const local = detectLocalState();
-      if (!local.books.length) {
-        alert("Не знайшла книги в цьому трекері.");
-        return;
-      }
-      await pushLocal(local);
-      alert("Готово: передано книг — " + local.books.length);
-    } catch (error) {
-      console.error(error);
-      alert("Не вдалося передати книги.");
+  Storage.prototype.setItem = function(key, value) {
+    nativeSetItem.call(this, key, value);
+    if (this === localStorage && key === KEY && !applyingRemote) {
+      schedulePush(value);
     }
   };
-  document.body.appendChild(syncButton);
 
-  reconcile();
+  async function applyRemoteIfNeeded() {
+    if (pushing || Date.now() - lastLocalMutation < 500) return;
+
+    try {
+      const local = detectLocalState();
+      const remote = await remoteState();
+      const localJson = JSON.stringify(local);
+      const remoteJson = JSON.stringify(remote);
+
+      if (!remote.books.length && local.books.length) {
+        await pushLocal(local);
+        return;
+      }
+
+      if (remote.books.length && remoteJson !== localJson) {
+        applyingRemote = true;
+        nativeSetItem.call(localStorage, KEY, remoteJson);
+        applyingRemote = false;
+        location.reload();
+      }
+    } catch (error) {
+      console.error("Book tracker live pull:", error);
+    }
+  }
+
+  window.addEventListener("focus", applyRemoteIfNeeded);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) applyRemoteIfNeeded();
+  });
+
+  setInterval(applyRemoteIfNeeded, 1200);
+  applyRemoteIfNeeded();
 })();
 </script>
 `;
