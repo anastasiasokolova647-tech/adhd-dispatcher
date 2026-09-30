@@ -345,3 +345,65 @@ small {
     flex-direction: column;
   }
 }
+
+.shared-book-tracker {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.shared-book-card {
+  border: 1px solid rgba(231,203,214,.9);
+  border-radius: 16px;
+  background: rgba(255,255,255,.62);
+  overflow: hidden;
+}
+
+.shared-book-card summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.shared-book-excerpts {
+  display: grid;
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+.shared-excerpt-row {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.72);
+}
+
+.shared-excerpt-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.shared-book-check {
+  padding: 7px 10px;
+  font-size: 14px;
+  box-shadow: none;
+}
+
+.shared-book-check.is-done {
+  opacity: .72;
+}
+
+@media (max-width: 600px) {
+  .shared-excerpt-checks {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .shared-book-check {
+    width: 100%;
+  }
+}
