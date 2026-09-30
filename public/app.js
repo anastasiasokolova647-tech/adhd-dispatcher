@@ -253,6 +253,38 @@ async function planBookExcerpt(bookId) {
 
 window.planBookExcerpt = planBookExcerpt;
 
+async function editBookPlannerKind(bookId) {
+  if (IS_PUBLIC_APP) return;
+
+  const tracker = await loadBookTracker();
+  const book = tracker.books.find((item) => item.id === bookId && !item.closed);
+
+  if (!book) {
+    alert("Не знайшла цю книгу в трекері.");
+    return;
+  }
+
+  const current = book.plannerKind === "poetry" ? "1" : "2";
+  const answer = prompt(
+    `«${book.title}» — який тип?
+1 — Поезія: випадковий незавершений уривок
+2 — Проза: строго наступний уривок`,
+    current,
+  );
+
+  if (answer === null) return;
+  if (!["1", "2"].includes(answer.trim())) {
+    alert("Обери 1 для поезії або 2 для прози.");
+    return;
+  }
+
+  book.plannerKind = answer.trim() === "1" ? "poetry" : "prose";
+  await saveBookTracker(tracker);
+  await showBookQueue();
+}
+
+window.editBookPlannerKind = editBookPlannerKind;
+
 async function showBookQueue() {
   if (IS_PUBLIC_APP) {
     showToday();
@@ -296,7 +328,10 @@ async function showBookQueue() {
                         : "Тип ще не заданий"
                   } · ${bookProgress(book)}%</small>
                 </div>
-                <button onclick="planBookExcerpt('${book.id}')">Дай мені уривок</button>
+                <div class="book-queue-actions">
+                  <button onclick="planBookExcerpt('${book.id}')">Дай мені уривок</button>
+                  <button class="book-kind-edit" onclick="editBookPlannerKind('${book.id}')" title="Змінити тип книги">✏️ Тип</button>
+                </div>
               </article>
             `,
               )
