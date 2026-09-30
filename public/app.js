@@ -9,9 +9,23 @@ const typeNames = {
 
 const PUBLIC_STORAGE_KEY = "friendly-dayplanner-data-v1";
 
-const IS_PUBLIC_APP =
-  window.location.hostname !== "localhost" &&
-  window.location.hostname !== "127.0.0.1";
+const LOCAL_HOSTNAME = window.location.hostname;
+
+function isPrivateLanHost(hostname) {
+  if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+
+  const parts = hostname.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) return false;
+
+  if (parts[0] === 10) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+
+  return false;
+}
+
+const IS_LOCAL_APP = isPrivateLanHost(LOCAL_HOSTNAME);
+const IS_PUBLIC_APP = !IS_LOCAL_APP;
 
 const BOOK_TRACKER_CATS = [
   { key: "plot", label: "Сюжет" },
