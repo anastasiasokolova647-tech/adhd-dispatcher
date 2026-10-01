@@ -256,8 +256,22 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
     }
   }
 
-  const remainingObserver = new MutationObserver(paintRemainingCounts);
-  remainingObserver.observe(document.body, { childList: true, subtree: true });
+  // Refresh counters only after the tracker's own render functions finish.
+  // Avoid a MutationObserver here: changing counter text itself creates DOM mutations
+  // and can interfere with the tracker's click/render cycle.
+  const originalRenderShelf = renderShelf;
+  renderShelf = function(...args) {
+    const result = originalRenderShelf.apply(this, args);
+    paintRemainingCounts();
+    return result;
+  };
+
+  const originalRenderDetail = renderDetail;
+  renderDetail = function(...args) {
+    const result = originalRenderDetail.apply(this, args);
+    paintRemainingCounts();
+    return result;
+  };
 
   setInterval(applyRemoteIfNeeded, 1200);
   applyRemoteIfNeeded();
