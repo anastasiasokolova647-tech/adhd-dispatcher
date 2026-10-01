@@ -41,10 +41,15 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
   app.get("/book-tracker/", (req, res) => {
     const indexPath = path.join(BOOK_TRACKER_DIR, "index.html");
     let html = fs.readFileSync(indexPath, "utf8");
+    const initialBooksJson = JSON.stringify(readBooksData()).replace(/</g, "\\u003c");
 
     const livePrelude = `
 <script>
 (() => {
+  try {
+    localStorage.setItem("rainbow-books-v02", ${JSON.stringify(initialBooksJson)});
+  } catch {}
+
   if (!("serviceWorker" in navigator)) return;
   navigator.serviceWorker.getRegistrations()
     .then((regs) => regs.forEach((reg) => reg.unregister()))
