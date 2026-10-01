@@ -533,21 +533,35 @@ async function unlockReminderAudio() {
   }
 }
 
-function scheduleBellTone(ctx, when, frequency) {
+function scheduleBellTone(ctx, when, frequency, volume = 0.16) {
   const oscillator = ctx.createOscillator();
+  const harmonic = ctx.createOscillator();
   const gain = ctx.createGain();
+  const harmonicGain = ctx.createGain();
 
   oscillator.type = "sine";
   oscillator.frequency.setValueAtTime(frequency, when);
 
+  harmonic.type = "sine";
+  harmonic.frequency.setValueAtTime(frequency * 2, when);
+
   gain.gain.setValueAtTime(0.0001, when);
-  gain.gain.exponentialRampToValueAtTime(0.24, when + 0.015);
-  gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.38);
+  gain.gain.exponentialRampToValueAtTime(volume, when + 0.025);
+  gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.55);
+
+  harmonicGain.gain.setValueAtTime(0.0001, when);
+  harmonicGain.gain.exponentialRampToValueAtTime(volume * 0.22, when + 0.02);
+  harmonicGain.gain.exponentialRampToValueAtTime(0.0001, when + 0.32);
 
   oscillator.connect(gain);
+  harmonic.connect(harmonicGain);
   gain.connect(ctx.destination);
+  harmonicGain.connect(ctx.destination);
+
   oscillator.start(when);
-  oscillator.stop(when + 0.4);
+  harmonic.start(when);
+  oscillator.stop(when + 0.58);
+  harmonic.stop(when + 0.35);
 }
 
 async function playTaskChime() {
@@ -559,8 +573,16 @@ async function playTaskChime() {
     if (ctx.state !== "running") return false;
 
     const start = ctx.currentTime + 0.02;
-    scheduleBellTone(ctx, start, 880);
-    scheduleBellTone(ctx, start + 0.22, 1175);
+
+    // A soft three-note major chime: C5 → E5 → G5.
+    scheduleBellTone(ctx, start, 523.25, 0.13);
+    scheduleBellTone(ctx, start + 0.27, 659.25, 0.12);
+    scheduleBellTone(ctx, start + 0.54, 783.99, 0.11);
+
+    if ("vibrate" in navigator) {
+      navigator.vibrate([70, 55, 70]);
+    }
+
     return true;
   } catch (error) {
     console.warn("Не вдалося програти дзинь-дзинь:", error);
