@@ -69,8 +69,8 @@ function bookExcerptDone(excerpt, fields) {
 }
 
 function bookProgress(book) {
-  const fields = getBookPlannerFields(book);
-  if (!book.excerpts?.length || !fields.length) return 0;
+  const fields = BOOK_TRACKER_CATS.map((cat) => cat.key);
+  if (!book.excerpts?.length) return 0;
 
   const total = book.excerpts.length * fields.length;
   const done = book.excerpts.reduce(
@@ -78,7 +78,7 @@ function bookProgress(book) {
     0
   );
 
-  return Math.round((done / total) * 100);
+  return Math.round((done / total) * 1000) / 10;
 }
 
 async function ensureBookPlannerSettings(tracker, book) {
