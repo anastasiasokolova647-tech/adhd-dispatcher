@@ -504,6 +504,15 @@ async function saveData() {
 
 let reminderAudioContext = null;
 let reminderCheckBusy = false;
+let reminderMelodyUnlocked = false;
+let activeTaskAlarmAudio = null;
+
+const ALARM_MELODY_URL = "/alarm-light-come-home.mp3?v=1";
+const reminderMelody = new Audio(ALARM_MELODY_URL);
+reminderMelody.preload = "auto";
+reminderMelody.loop = true;
+reminderMelody.volume = 0.82;
+reminderMelody.playsInline = true;
 
 function askTaskChime(task) {
   if (!task.time) {
@@ -513,7 +522,7 @@ function askTaskChime(task) {
   }
 
   task.chime = confirm(
-    "🔔 Це важлива терміноорієнтована справа?\n\nДзинь-дзинь у зазначений час?"
+    "🔔 Це важлива терміноорієнтована справа?\n\nУвімкнути будильник з мелодією у зазначений час?"
   );
 
   if (!task.chime) delete task.chimedFor;
@@ -530,6 +539,19 @@ async function unlockReminderAudio() {
   const ctx = getReminderAudioContext();
   if (ctx && ctx.state === "suspended") {
     try { await ctx.resume(); } catch {}
+  }
+
+  if (reminderMelodyUnlocked) return;
+
+  try {
+    reminderMelody.muted = true;
+    await reminderMelody.play();
+    reminderMelody.pause();
+    reminderMelody.currentTime = 0;
+    reminderMelody.muted = false;
+    reminderMelodyUnlocked = true;
+  } catch {
+    reminderMelody.muted = false;
   }
 }
 
@@ -564,7 +586,7 @@ function scheduleBellTone(ctx, when, frequency, volume = 0.16) {
   harmonic.stop(when + 0.35);
 }
 
-async function playTaskChime() {
+async function playFallbackTaskChime() {
   const ctx = getReminderAudioContext();
   if (!ctx) return false;
 
@@ -573,30 +595,72 @@ async function playTaskChime() {
     if (ctx.state !== "running") return false;
 
     const start = ctx.currentTime + 0.02;
-
-    // A soft three-note major chime: C5 → E5 → G5.
     scheduleBellTone(ctx, start, 523.25, 0.13);
     scheduleBellTone(ctx, start + 0.27, 659.25, 0.12);
     scheduleBellTone(ctx, start + 0.54, 783.99, 0.11);
-
-    if ("vibrate" in navigator) {
-      navigator.vibrate([70, 55, 70]);
-    }
-
     return true;
-  } catch (error) {
-    console.warn("Не вдалося програти дзинь-дзинь:", error);
+  } catch {
     return false;
   }
 }
 
+function stopTaskAlarm() {
+  if (activeTaskAlarmAudio) {
+    try {
+      activeTaskAlarmAudio.pause();
+      activeTaskAlarmAudio.currentTime = 0;
+    } catch {}
+    activeTaskAlarmAudio = null;
+  }
+
+  if ("vibrate" in navigator) navigator.vibrate(0);
+  document.getElementById("taskChimeToast")?.remove();
+}
+
+window.stopTaskAlarm = stopTaskAlarm;
+
+async function playTaskChime() {
+  stopTaskAlarm();
+
+  try {
+    reminderMelody.currentTime = 0;
+    reminderMelody.loop = true;
+    reminderMelody.volume = 0.82;
+    await reminderMelody.play();
+    activeTaskAlarmAudio = reminderMelody;
+
+    if ("vibrate" in navigator) {
+      navigator.vibrate([120, 100, 120, 500, 120, 100, 120]);
+    }
+
+    return true;
+  } catch (error) {
+    console.warn("Мелодія будильника не запустилася, вмикаю дзинь:", error);
+
+    const playedFallback = await playFallbackTaskChime();
+    if (playedFallback && "vibrate" in navigator) {
+      navigator.vibrate([80, 70, 80]);
+    }
+    return playedFallback;
+  }
+}
+
 function showTaskChimeToast(task) {
-  const old = document.getElementById("taskChimeToast");
-  old?.remove();
+  document.getElementById("taskChimeToast")?.remove();
 
   const toast = document.createElement("div");
   toast.id = "taskChimeToast";
-  toast.innerHTML = `🔔 <strong>Час:</strong> ${escapeInboxHtml(task.text)}`;
+  toast.innerHTML = `
+    <div>🔔 <strong>Час:</strong> ${escapeInboxHtml(task.text)}</div>
+    <button type="button" onclick="stopTaskAlarm()" style="
+      margin-top:10px;
+      padding:8px 14px;
+      border:0;
+      border-radius:12px;
+      cursor:pointer;
+      font:inherit;
+    ">Вимкнути будильник</button>
+  `;
   toast.style.position = "fixed";
   toast.style.left = "50%";
   toast.style.top = "18px";
@@ -610,8 +674,6 @@ function showTaskChimeToast(task) {
   toast.style.fontSize = "16px";
   toast.style.textAlign = "center";
   document.body.appendChild(toast);
-
-  setTimeout(() => toast.remove(), 12000);
 }
 
 function taskReminderMatchesToday(task, now) {
@@ -629,7 +691,7 @@ function taskReminderMatchesToday(task, now) {
 }
 
 async function checkTimedTaskChimes() {
-  if (reminderCheckBusy || document.hidden) return;
+  if (reminderCheckBusy) return;
   reminderCheckBusy = true;
 
   try {
