@@ -502,6 +502,157 @@ async function saveData() {
   if (!response.ok) throw new Error("Не вдалося зберегти справу");
 }
 
+let reminderAudioContext = null;
+let reminderCheckBusy = false;
+
+function askTaskChime(task) {
+  if (!task.time) {
+    task.chime = false;
+    delete task.chimedFor;
+    return;
+  }
+
+  task.chime = confirm(
+    "🔔 Це важлива терміноорієнтована справа?\n\nДзинь-дзинь у зазначений час?"
+  );
+
+  if (!task.chime) delete task.chimedFor;
+}
+
+function getReminderAudioContext() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!reminderAudioContext) reminderAudioContext = new AudioContextClass();
+  return reminderAudioContext;
+}
+
+async function unlockReminderAudio() {
+  const ctx = getReminderAudioContext();
+  if (ctx && ctx.state === "suspended") {
+    try { await ctx.resume(); } catch {}
+  }
+}
+
+function scheduleBellTone(ctx, when, frequency) {
+  const oscillator = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  oscillator.type = "sine";
+  oscillator.frequency.setValueAtTime(frequency, when);
+
+  gain.gain.setValueAtTime(0.0001, when);
+  gain.gain.exponentialRampToValueAtTime(0.24, when + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.38);
+
+  oscillator.connect(gain);
+  gain.connect(ctx.destination);
+  oscillator.start(when);
+  oscillator.stop(when + 0.4);
+}
+
+async function playTaskChime() {
+  const ctx = getReminderAudioContext();
+  if (!ctx) return false;
+
+  try {
+    if (ctx.state === "suspended") await ctx.resume();
+    if (ctx.state !== "running") return false;
+
+    const start = ctx.currentTime + 0.02;
+    scheduleBellTone(ctx, start, 880);
+    scheduleBellTone(ctx, start + 0.22, 1175);
+    return true;
+  } catch (error) {
+    console.warn("Не вдалося програти дзинь-дзинь:", error);
+    return false;
+  }
+}
+
+function showTaskChimeToast(task) {
+  const old = document.getElementById("taskChimeToast");
+  old?.remove();
+
+  const toast = document.createElement("div");
+  toast.id = "taskChimeToast";
+  toast.innerHTML = `🔔 <strong>Час:</strong> ${escapeInboxHtml(task.text)}`;
+  toast.style.position = "fixed";
+  toast.style.left = "50%";
+  toast.style.top = "18px";
+  toast.style.transform = "translateX(-50%)";
+  toast.style.zIndex = "999999";
+  toast.style.maxWidth = "min(88vw, 560px)";
+  toast.style.padding = "14px 18px";
+  toast.style.borderRadius = "18px";
+  toast.style.background = "rgba(255, 248, 252, .96)";
+  toast.style.boxShadow = "0 10px 30px rgba(60, 40, 55, .22)";
+  toast.style.fontSize = "16px";
+  toast.style.textAlign = "center";
+  document.body.appendChild(toast);
+
+  setTimeout(() => toast.remove(), 12000);
+}
+
+function taskReminderMatchesToday(task, now) {
+  const today = formatLocalDate(now);
+
+  if (
+    task.type === "agreement" &&
+    task.repeat === "weekly"
+  ) {
+    const weekday = now.getDay() === 0 ? 7 : now.getDay();
+    return task.weekday === weekday;
+  }
+
+  return task.date === today;
+}
+
+async function checkTimedTaskChimes() {
+  if (reminderCheckBusy || document.hidden) return;
+  reminderCheckBusy = true;
+
+  try {
+    await loadData();
+
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const today = formatLocalDate(now);
+
+    for (const task of data.tasks || []) {
+      if (task.done || !task.chime || !task.time) continue;
+      if (!taskReminderMatchesToday(task, now)) continue;
+
+      const match = /^(\d{2}):(\d{2})$/.exec(task.time);
+      if (!match) continue;
+
+      const dueMinutes = Number(match[1]) * 60 + Number(match[2]);
+      if (nowMinutes < dueMinutes) continue;
+
+      const reminderKey = `${today}|${task.time}`;
+      if (task.chimedFor === reminderKey) continue;
+
+      const played = await playTaskChime();
+      if (!played) continue;
+
+      task.chimedFor = reminderKey;
+      showTaskChimeToast(task);
+      await saveData();
+    }
+  } catch (error) {
+    console.warn("Перевірка дзинь-дзинь не вдалася:", error);
+  } finally {
+    reminderCheckBusy = false;
+  }
+}
+
+document.addEventListener("pointerdown", unlockReminderAudio, { passive: true });
+document.addEventListener("keydown", unlockReminderAudio, { passive: true });
+window.addEventListener("focus", checkTimedTaskChimes);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) checkTimedTaskChimes();
+});
+setInterval(checkTimedTaskChimes, 15000);
+setTimeout(checkTimedTaskChimes, 1200);
+
 document.getElementById("homeSaveInbox")?.addEventListener("click", async () => {
   const input = document.getElementById("homeInboxText");
   const text = input.value.trim();
@@ -621,7 +772,7 @@ function openFolder(id) {
                 month: "long"
               })}`
             : ""}
-          — ${task.text}
+          — ${task.chime ? "🔔 " : ""}${task.text}
           <button onclick="editTask(${task.id}, ${id})">✏️</button>
           <button onclick="deleteTask(${task.id}, ${id})">🗑️</button>
           ${task.done ? `<button onclick="celebrateTask(${task.id}, ${id})">🌷 Відсвяткувати</button>` : ""}
@@ -768,6 +919,8 @@ async function addTask(folderId) {
 
       if (time?.trim()) task.time = time.trim();
     }
+
+    askTaskChime(task);
 
     data.tasks.push(task);
     await saveData();
@@ -1143,6 +1296,8 @@ async function addTaskForDate(dateKey, weekday, returnView) {
       if (time?.trim()) task.time = time.trim();
     }
 
+    askTaskChime(task);
+
     data.tasks.push(task);
     await saveData();
 
@@ -1216,7 +1371,7 @@ async function showWeek() {
             ? tasks.map(task => `
                 <p>
                   <button onclick="toggleWeekTask(${task.id})">☐</button>
-                  ${task.time ? `<strong>${task.time}</strong> — ` : ""}
+                  ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> — ` : ""}
                   ${task.text}
                   <small>${typeNames[task.type] || ""}</small>
                 </p>
@@ -1318,7 +1473,7 @@ async function showCalendar(year, month) {
               title="${escapeInboxHtml(folderName)}"
             >
               ${task.done ? "✅ " : ""}
-              ${task.time ? `<strong>${task.time}</strong> ` : ""}
+              ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> ` : ""}
               ${escapeInboxHtml(task.text)}
               <small>${escapeInboxHtml(folderName)}</small>
             </button>
@@ -1427,7 +1582,7 @@ async function showToday() {
               <button onclick="toggleTodayTask(${task.id})">
                 ${task.done ? "✅" : "☐"}
               </button>
-              ${task.time ? `<strong>${task.time}</strong> — ` : ""}
+              ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> — ` : ""}
               ${task.done ? `<s>${task.text}</s>` : task.text}
               <small>${typeNames[task.type] || ""}</small>
             </p>
@@ -1485,20 +1640,36 @@ async function editTask(taskId, folderId) {
     task.weekday = Number(day);
     task.time = time.trim();
     delete task.date;
+    askTaskChime(task);
   } else {
     const date = prompt(
       "Дата справи у форматі РРРР-ММ-ДД:",
-      task.date || new Date().toISOString().slice(0, 10)
+      task.date || formatLocalDate(new Date())
     );
 
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) return;
 
+    const time = prompt(
+      "Час (необов'язково). Наприклад 18:00. Можна лишити порожнім:",
+      task.time || ""
+    );
+
+    if (time && !/^\d{2}:\d{2}$/.test(time.trim())) {
+      alert("Час введи у форматі 18:00 або лиши порожнім.");
+      return;
+    }
+
     task.date = date.trim();
     delete task.repeat;
     delete task.weekday;
-    delete task.time;
+
+    if (time?.trim()) task.time = time.trim();
+    else delete task.time;
+
+    askTaskChime(task);
   }
 
+  delete task.chimedFor;
   await saveData();
   openFolder(folderId);
 }
