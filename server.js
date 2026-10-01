@@ -186,12 +186,12 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
 
   function paintRemainingCounts() {
     try {
-      const visibleBooks = state.books.filter((book) =>
-        currentTab === "active" ? !book.closed : book.closed
-      );
-
-      document.querySelectorAll("#shelf .book").forEach((card, index) => {
-        const book = visibleBooks[index];
+      document.querySelectorAll("#shelf .book").forEach((card) => {
+        // Match by the title already rendered inside this exact card.
+        // Do not rely on array/card index: the visual shelf order can differ
+        // from the state array after sync/re-render.
+        const title = card.querySelector(".bookTitle")?.textContent?.trim();
+        const book = state.books.find((item) => item.title === title);
         if (!book) return;
 
         const overlay = card.querySelector(".bookOverlay");
