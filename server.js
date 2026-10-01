@@ -173,8 +173,95 @@ if (fs.existsSync(BOOK_TRACKER_DIR)) {
     if (!document.hidden) applyRemoteIfNeeded();
   });
 
+  // Show how many excerpts are still unfinished overall and in each stage.
+  function remainingFor(book, key) {
+    return (book.excerpts || []).filter((excerpt) => !excerpt[key]).length;
+  }
+
+  function unfinishedExcerpts(book) {
+    return (book.excerpts || []).filter((excerpt) =>
+      cats.some(([key]) => !excerpt[key])
+    ).length;
+  }
+
+  function paintRemainingCounts() {
+    try {
+      const visibleBooks = state.books.filter((book) =>
+        currentTab === "active" ? !book.closed : book.closed
+      );
+
+      document.querySelectorAll("#shelf .book").forEach((card, index) => {
+        const book = visibleBooks[index];
+        if (!book) return;
+
+        const overlay = card.querySelector(".bookOverlay");
+        const mini = card.querySelector(".mini");
+        if (overlay && mini) {
+          let total = overlay.querySelector(".remainingTotalInjected");
+          if (!total) {
+            total = document.createElement("div");
+            total.className = "remainingTotalInjected";
+            total.style.fontSize = "12px";
+            total.style.opacity = ".9";
+            total.style.marginTop = "4px";
+            overlay.insertBefore(total, mini);
+          }
+          total.textContent = "Лишилось уривків: " + unfinishedExcerpts(book);
+        }
+
+        const rows = card.querySelectorAll(".miniRow");
+        cats.forEach(([key], catIndex) => {
+          const row = rows[catIndex];
+          const value = row && row.querySelector("b");
+          if (!value) return;
+
+          const textValue =
+            remainingFor(book, key) + " лиш. · " + fmt(catPct(book, key)) + "%";
+          if (value.textContent !== textValue) value.textContent = textValue;
+        });
+      });
+
+      if (currentBookId && bookById(currentBookId)) {
+        const book = bookById(currentBookId);
+        const topSub = document.getElementById("topSub");
+        if (topSub) {
+          const textValue =
+            book.excerpts.length +
+            " уривків · " +
+            unfinishedExcerpts(book) +
+            " лишилось";
+          if (topSub.textContent !== textValue) topSub.textContent = textValue;
+        }
+
+        const pills = document.querySelectorAll("#detailStats .pill");
+        cats.forEach(([key, label], catIndex) => {
+          const pill = pills[catIndex];
+          if (!pill) return;
+
+          const textValue =
+            label +
+            ": " +
+            remainingFor(book, key) +
+            " лиш. · " +
+            fmt(catPct(book, key)) +
+            "%";
+
+          if (pill.textContent !== textValue) {
+            pill.textContent = textValue;
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Book tracker remaining counts:", error);
+    }
+  }
+
+  const remainingObserver = new MutationObserver(paintRemainingCounts);
+  remainingObserver.observe(document.body, { childList: true, subtree: true });
+
   setInterval(applyRemoteIfNeeded, 1200);
   applyRemoteIfNeeded();
+  paintRemainingCounts();
 })();
 </script>
 `;
