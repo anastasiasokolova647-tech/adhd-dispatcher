@@ -651,7 +651,7 @@ function showTaskChimeToast(task) {
   const toast = document.createElement("div");
   toast.id = "taskChimeToast";
   toast.innerHTML = `
-    <div>🔔 <strong>Час:</strong> ${escapeInboxHtml(task.text)}</div>
+    <div>🔔 <strong>Час:</strong> ${linkifyTaskText(task.text)}</div>
     <button type="button" onclick="stopTaskAlarm()" style="
       margin-top:10px;
       padding:8px 14px;
@@ -1507,7 +1507,7 @@ async function showWeek() {
                 <p>
                   <button onclick="toggleWeekTask(${task.id})">☐</button>
                   ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> — ` : ""}
-                  ${task.text}
+                  ${linkifyTaskText(task.text)}
                   <small>${typeNames[task.type] || ""}</small>
                 </p>
               `).join("")
