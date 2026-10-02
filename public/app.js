@@ -705,10 +705,11 @@ async function checkTimedTaskChimes() {
       if (task.done || !task.chime || !task.time) continue;
       if (!taskReminderMatchesToday(task, now)) continue;
 
-      const match = /^(\d{2}):(\d{2})$/.exec(task.time);
-      if (!match) continue;
+      const normalizedTime = normalizeTaskTime(task.time);
+      if (!normalizedTime) continue;
 
-      const dueMinutes = Number(match[1]) * 60 + Number(match[2]);
+      const [dueHours, dueMinutesPart] = normalizedTime.split(":").map(Number);
+      const dueMinutes = dueHours * 60 + dueMinutesPart;
       if (nowMinutes < dueMinutes) continue;
 
       const reminderKey = `${today}|${task.time}`;
@@ -941,15 +942,16 @@ async function addTask(folderId) {
 
       if (!["1","2","3","4","5","6","7"].includes(day)) return;
 
-      const time = prompt("О котрій годині? Наприклад 19:00", "19:00");
-      if (!time || !/^\d{2}:\d{2}$/.test(time.trim())) {
-        alert("Час введи у форматі 19:00.");
+      const time = prompt("О котрій годині? Наприклад 9:00 або 18:30", "");
+      const normalizedTime = normalizeTaskTime(time);
+      if (!normalizedTime) {
+        alert("Напиши час як 9:00 або 18:30.");
         return;
       }
 
       task.repeat = "weekly";
       task.weekday = Number(day);
-      task.time = time.trim();
+      task.time = normalizedTime;
     }
 
     if (task.type === "externalDeadline" || task.type === "ownDeadline") {
@@ -966,16 +968,18 @@ async function addTask(folderId) {
       task.date = date.trim();
 
       const time = prompt(
-        "Час (необов'язково). Наприклад 18:00. Можна лишити порожнім:",
+        "Час (необов'язково). Наприклад 9:00 або 18:30. Можна лишити порожнім:",
         ""
       );
 
-      if (time && !/^\d{2}:\d{2}$/.test(time.trim())) {
-        alert("Час введи у форматі 18:00 або лиши порожнім.");
-        return;
+      if (time?.trim()) {
+        const normalizedTime = normalizeTaskTime(time);
+        if (!normalizedTime) {
+          alert("Напиши час як 9:00 або 18:30, або лиши порожнім.");
+          return;
+        }
+        task.time = normalizedTime;
       }
-
-      if (time?.trim()) task.time = time.trim();
     }
 
     if (task.type === "oneTime") {
@@ -992,16 +996,18 @@ async function addTask(folderId) {
       if (date?.trim()) task.date = date.trim();
 
       const time = prompt(
-        "Час (необов'язково). Наприклад 15:00. Можна лишити порожнім:",
+        "Час (необов'язково). Наприклад 9:00 або 18:30. Можна лишити порожнім:",
         ""
       );
 
-      if (time && !/^\d{2}:\d{2}$/.test(time.trim())) {
-        alert("Час введи у форматі 15:00 або лиши порожнім.");
-        return;
+      if (time?.trim()) {
+        const normalizedTime = normalizeTaskTime(time);
+        if (!normalizedTime) {
+          alert("Напиши час як 9:00 або 18:30, або лиши порожнім.");
+          return;
+        }
+        task.time = normalizedTime;
       }
-
-      if (time?.trim()) task.time = time.trim();
     }
 
     askTaskChime(task);
@@ -1317,6 +1323,17 @@ function formatLocalDate(date) {
     String(date.getDate()).padStart(2, "0");
 }
 
+function normalizeTaskTime(value) {
+  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return "";
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return "";
+  return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0");
+}
+
 async function addTaskForDate(dateKey, weekday, returnView) {
   try {
     await loadData();
@@ -1358,26 +1375,29 @@ async function addTaskForDate(dateKey, weekday, returnView) {
       task.repeat = "weekly";
       task.weekday = Number(weekday);
 
-      const time = prompt("О котрій годині? Наприклад 19:00", "19:00");
-      if (!time || !/^\d{2}:\d{2}$/.test(time.trim())) {
-        alert("Час введи у форматі 19:00.");
+      const time = prompt("О котрій годині? Наприклад 9:00 або 18:30", "");
+      const normalizedTime = normalizeTaskTime(time);
+      if (!normalizedTime) {
+        alert("Напиши час як 9:00 або 18:30.");
         return;
       }
-      task.time = time.trim();
+      task.time = normalizedTime;
     } else {
       task.date = dateKey;
 
       const time = prompt(
-        "Час (необов'язково). Наприклад 15:00. Можна лишити порожнім:",
+        "Час (необов'язково). Наприклад 9:00 або 18:30. Можна лишити порожнім:",
         ""
       );
 
-      if (time && !/^\d{2}:\d{2}$/.test(time.trim())) {
-        alert("Час введи у форматі 15:00 або лиши порожнім.");
-        return;
+      if (time?.trim()) {
+        const normalizedTime = normalizeTaskTime(time);
+        if (!normalizedTime) {
+          alert("Напиши час як 9:00 або 18:30, або лиши порожнім.");
+          return;
+        }
+        task.time = normalizedTime;
       }
-
-      if (time?.trim()) task.time = time.trim();
     }
 
     askTaskChime(task);
@@ -1717,12 +1737,16 @@ async function editTask(taskId, folderId) {
 
     if (!["1","2","3","4","5","6","7"].includes(day)) return;
 
-    const time = prompt("Час:", task.time || "19:00");
-    if (!time || !/^\d{2}:\d{2}$/.test(time.trim())) return;
+    const time = prompt("Час:", task.time || "");
+    const normalizedTime = normalizeTaskTime(time);
+    if (!normalizedTime) {
+      alert("Напиши час як 9:00 або 18:30.");
+      return;
+    }
 
     task.repeat = "weekly";
     task.weekday = Number(day);
-    task.time = time.trim();
+    task.time = normalizedTime;
     delete task.date;
     askTaskChime(task);
   } else {
@@ -1734,21 +1758,24 @@ async function editTask(taskId, folderId) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) return;
 
     const time = prompt(
-      "Час (необов'язково). Наприклад 18:00. Можна лишити порожнім:",
+      "Час (необов'язково). Наприклад 9:00 або 18:30. Можна лишити порожнім:",
       task.time || ""
     );
-
-    if (time && !/^\d{2}:\d{2}$/.test(time.trim())) {
-      alert("Час введи у форматі 18:00 або лиши порожнім.");
-      return;
-    }
 
     task.date = date.trim();
     delete task.repeat;
     delete task.weekday;
 
-    if (time?.trim()) task.time = time.trim();
-    else delete task.time;
+    if (time?.trim()) {
+      const normalizedTime = normalizeTaskTime(time);
+      if (!normalizedTime) {
+        alert("Напиши час як 9:00 або 18:30, або лиши порожнім.");
+        return;
+      }
+      task.time = normalizedTime;
+    } else {
+      delete task.time;
+    }
 
     askTaskChime(task);
   }
