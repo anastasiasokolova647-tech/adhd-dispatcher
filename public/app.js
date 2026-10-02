@@ -480,12 +480,13 @@ async function loadData() {
       ? JSON.parse(saved)
       : { folders: [], tasks: [], inbox: [] };
 
-    return;
+  } else {
+    const response = await fetch("/api/data");
+    if (!response.ok) throw new Error("Не вдалося завантажити справи");
+    data = await response.json();
   }
 
-  const response = await fetch("/api/data");
-  if (!response.ok) throw new Error("Не вдалося завантажити справи");
-  data = await response.json();
+  if (normalizeRecurringTaskProgress()) await saveData();
 }
 
 async function saveData() {
@@ -677,17 +678,7 @@ function showTaskChimeToast(task) {
 }
 
 function taskReminderMatchesToday(task, now) {
-  const today = formatLocalDate(now);
-
-  if (
-    task.type === "agreement" &&
-    task.repeat === "weekly"
-  ) {
-    const weekday = now.getDay() === 0 ? 7 : now.getDay();
-    return task.weekday === weekday;
-  }
-
-  return task.date === today;
+  return taskOccursOnDate(task, now);
 }
 
 async function checkTimedTaskChimes() {
@@ -702,7 +693,7 @@ async function checkTimedTaskChimes() {
     const today = formatLocalDate(now);
 
     for (const task of data.tasks || []) {
-      if (task.done || !task.chime || !task.time) continue;
+      if (taskDoneOnDate(task, today) || !task.chime || !task.time) continue;
       if (!taskReminderMatchesToday(task, now)) continue;
 
       const normalizedTime = normalizeTaskTime(task.time);
@@ -801,7 +792,7 @@ function renderFolders() {
 
     const tasks = data.tasks.filter(t => t.folderId === folder.id);
     const progress = tasks.length
-      ? Math.round(tasks.filter(t => t.done).length / tasks.length * 100)
+      ? Math.round(tasks.filter(t => taskDoneOnDate(t, taskActionDate(t))).length / tasks.length * 100)
       : 0;
 
     return `
@@ -815,7 +806,7 @@ function renderFolders() {
   }).join("");
 }
 
-function openFolder(id) {
+function openFolder(id, selectedDate = formatLocalDate(new Date())) {
   const folder = data.folders.find(f => f.id === id);
   if (!folder) return;
 
@@ -843,13 +834,18 @@ function openFolder(id) {
     <button onclick="showFolders()">← Папки</button>
     <h2>📁 ${folder.name}</h2>
 
-    <button onclick="addTask(${id})">➕ Додати справу</button>
+    <button onclick="addTask(${id}, '${selectedDate}')">➕ Додати справу</button>
 
     <div>
-      ${tasks.length ? tasks.map(task => `
+      ${tasks.length ? tasks.map(task => {
+        const occurrenceDate = taskActionDate(task, selectedDate);
+        const done = taskDoneOnDate(task, occurrenceDate);
+        const celebrated = data.tasks.some(t => t.recurringTaskId === task.id && t.date === occurrenceDate && t.celebratedAt);
+        return `
         <p>
-          <button onclick="toggleTask(${task.id}, ${id})">${task.done ? "✅" : "☐"}</button>
+          <button onclick="toggleTask(${task.id}, ${id}, '${occurrenceDate}')">${done ? "✅" : "☐"}</button>
           <strong>${typeNames[task.type] || "📝 Стара справа"}</strong>
+          ${taskRepeatLabel(task) ? `<small>${taskRepeatLabel(task)} · ${occurrenceDate}</small>` : ""}
           ${(task.type === "externalDeadline" || task.type === "ownDeadline") && task.date
             ? ` · 📅 ${new Date(task.date + "T00:00:00").toLocaleDateString("uk-UA", {
                 weekday: "long",
@@ -858,16 +854,17 @@ function openFolder(id) {
               })}`
             : ""}
           — ${task.chime ? "🔔 " : ""}${linkifyTaskText(task.text)}
-          <button onclick="editTask(${task.id}, ${id})">✏️</button>
+          <button onclick="editTask(${task.id}, ${id}, '${occurrenceDate}')">✏️</button>
           <button onclick="deleteTask(${task.id}, ${id})">🗑️</button>
-          ${task.done ? `<button onclick="celebrateTask(${task.id}, ${id})">🌷 Відсвяткувати</button>` : ""}
+          ${done && !celebrated ? `<button onclick="celebrateTask(${task.id}, ${id}, '${occurrenceDate}')">🌷 Відсвяткувати</button>` : ""}
         </p>
-      `).join("") : "<p>Тут поки тихо 🐣</p>"}
+      `;
+      }).join("") : "<p>Тут поки тихо 🐣</p>"}
     </div>
   `;
 }
 
-async function celebrateTask(taskId, oldFolderId) {
+async function celebrateTask(taskId, oldFolderId, occurrenceDate) {
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) return;
 
@@ -882,20 +879,38 @@ async function celebrateTask(taskId, oldFolderId) {
     data.folders.push(celebrationFolder);
   }
 
-  task.folderId = celebrationFolder.id;
-  task.done = true;
+  if (getTaskRepeat(task)) {
+    const dateKey = occurrenceDate || taskActionDate(task);
+    setTaskOccurrenceDone(task, dateKey, true);
+    if (!data.tasks.some(t => t.recurringTaskId === task.id && t.date === dateKey && t.celebratedAt)) {
+      const completed = {
+        ...task,
+        id: Date.now(),
+        folderId: celebrationFolder.id,
+        recurringTaskId: task.id,
+        date: dateKey,
+        done: true,
+        celebratedAt: new Date().toISOString()
+      };
+      clearTaskRepeat(completed);
+      data.tasks.push(completed);
+    }
+  } else {
+    task.folderId = celebrationFolder.id;
+    task.done = true;
+    task.celebratedAt = new Date().toISOString();
+  }
   await syncBookProgressForTask(task);
-  task.celebratedAt = new Date().toISOString();
 
   await saveData();
   playCelebration();
 
-  setTimeout(() => openFolder(oldFolderId), 5000);
+  setTimeout(() => openFolder(oldFolderId, occurrenceDate), 5000);
 }
 
 window.celebrateTask = celebrateTask;
 
-async function addTask(folderId) {
+async function addTask(folderId, selectedDate) {
   try {
     await loadData();
 
@@ -936,21 +951,16 @@ async function addTask(folderId) {
     };
 
     if (task.type === "agreement") {
-      const day = prompt(
-        "День тижня:\n1 — Понеділок\n2 — Вівторок\n3 — Середа\n4 — Четвер\n5 — П'ятниця\n6 — Субота\n7 — Неділя"
-      );
-
-      if (!["1","2","3","4","5","6","7"].includes(day)) return;
+      if (!askTaskRepeat(task, selectedDate)) return;
 
       const time = prompt("О котрій годині? Наприклад 9:00 або 18:30", "");
+      if (time === null) return;
       const normalizedTime = normalizeTaskTime(time);
       if (!normalizedTime) {
         alert("Напиши час як 9:00 або 18:30.");
         return;
       }
 
-      task.repeat = "weekly";
-      task.weekday = Number(day);
       task.time = normalizedTime;
     }
 
@@ -980,6 +990,7 @@ async function addTask(folderId) {
         }
         task.time = normalizedTime;
       }
+      if (!askTaskRepeat(task, task.date, true)) return;
     }
 
     if (task.type === "oneTime") {
@@ -1328,14 +1339,16 @@ async function deleteTask(taskId, folderId) {
 }
 
 window.deleteTask = deleteTask;
-async function toggleTask(taskId, folderId) {
+async function toggleTask(taskId, folderId, occurrenceDate) {
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) return;
 
-  task.done = !task.done;
-  if (task.done) await syncBookProgressForTask(task);
+  const dateKey = occurrenceDate || taskActionDate(task);
+  const done = !taskDoneOnDate(task, dateKey);
+  setTaskOccurrenceDone(task, dateKey, done);
+  if (done) await syncBookProgressForTask(task);
   await saveData();
-  openFolder(folderId);
+  openFolder(folderId, dateKey);
 }
 
 window.toggleTask = toggleTask;
@@ -1352,6 +1365,137 @@ function formatLocalDate(date) {
   return date.getFullYear() + "-" +
     String(date.getMonth() + 1).padStart(2, "0") + "-" +
     String(date.getDate()).padStart(2, "0");
+}
+
+function parseTaskDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(value + "T00:00:00");
+  return Number.isFinite(date.getTime()) && formatLocalDate(date) === value ? date : null;
+}
+
+function getTaskRepeat(task) {
+  if (task.celebratedAt) return "";
+  return ["daily", "weekly", "monthly", "yearly"].includes(task.repeat) ? task.repeat : "";
+}
+
+function taskOccursOnDate(task, date) {
+  const dateKey = formatLocalDate(date);
+  const repeat = getTaskRepeat(task);
+  if (!repeat) return task.date === dateKey;
+  const start = parseTaskDate(task.startDate) || parseTaskDate(task.date);
+  if (start && dateKey < formatLocalDate(start)) return false;
+
+  if (repeat === "daily") return true;
+  if (repeat === "weekly") return Number(task.weekday) === (date.getDay() || 7);
+
+  const anchor = parseTaskDate(task.date) || parseTaskDate(task.startDate);
+  if (!anchor || dateKey < formatLocalDate(anchor)) return false;
+  if (repeat === "yearly" && date.getMonth() !== anchor.getMonth()) return false;
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  return date.getDate() === Math.min(anchor.getDate(), lastDay);
+}
+
+function taskDoneOnDate(task, dateKey) {
+  if (!getTaskRepeat(task)) return Boolean(task.done);
+  if (task.completions && Object.prototype.hasOwnProperty.call(task.completions, dateKey)) {
+    return task.completions[dateKey] === true;
+  }
+  return Boolean(parseTaskDate(task.completedThrough) && dateKey <= task.completedThrough);
+}
+
+function normalizeRecurringTaskProgress() {
+  let changed = false;
+  for (const task of data.tasks || []) {
+    if (!getTaskRepeat(task)) continue;
+    if (!task.completions || typeof task.completions !== "object" || Array.isArray(task.completions)) {
+      task.completions = {};
+      changed = true;
+    }
+    // The old global checkmark marked every occurrence complete. Keep that
+    // history through today, but allow future occurrences to be completed anew.
+    if (task.done) {
+      task.completedThrough = task.completedThrough || formatLocalDate(new Date());
+      task.done = false;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function setTaskOccurrenceDone(task, dateKey, done) {
+  if (getTaskRepeat(task)) {
+    if (!task.completions || typeof task.completions !== "object" || Array.isArray(task.completions)) {
+      task.completions = {};
+    }
+    task.completions[dateKey] = done;
+    task.done = false;
+  } else {
+    task.done = done;
+  }
+}
+
+function taskActionDate(task, selectedDate = formatLocalDate(new Date())) {
+  let date = parseTaskDate(selectedDate) || new Date();
+  if (!getTaskRepeat(task)) return formatLocalDate(date);
+  const start = parseTaskDate(task.startDate) || parseTaskDate(task.date);
+  if (start && start > date) date = start;
+  for (let offset = 0; offset <= 366; offset++) {
+    if (taskOccursOnDate(task, date)) return formatLocalDate(date);
+    date.setDate(date.getDate() + 1);
+  }
+  return selectedDate;
+}
+
+function taskRepeatLabel(task) {
+  return { daily: "Щодня", weekly: "Щотижня", monthly: "Щомісяця", yearly: "Щороку" }[getTaskRepeat(task)] || "";
+}
+
+function clearTaskRepeat(task) {
+  for (const key of ["repeat", "weekday", "startDate", "completions", "completedThrough"]) delete task[key];
+}
+
+function askTaskRepeat(task, selectedDate, allowNone = false) {
+  const choices = { "1": "daily", "2": "weekly", "3": "monthly", "4": "yearly" };
+  const current = Object.keys(choices).find(key => choices[key] === task.repeat) || (allowNone ? "0" : "2");
+  const answer = prompt(
+    "Як повторювати справу?\n" + (allowNone ? "0 — Без повтору\n" : "") +
+    "1 — Щодня\n2 — Щотижня\n3 — Щомісяця\n4 — Щороку\n\nЯкщо потрібного числа немає в місяці — повтор буде в останній день місяця.",
+    current
+  );
+  if (answer === null) return false;
+  if (allowNone && answer.trim() === "0") { clearTaskRepeat(task); return true; }
+  const repeat = choices[answer.trim()];
+  if (!repeat) { alert("Обери 1, 2, 3 або 4."); return false; }
+
+  let startDate = (allowNone && selectedDate) || task.startDate || selectedDate || formatLocalDate(new Date());
+  if (repeat === "weekly") {
+    const defaultWeekday = (parseTaskDate(selectedDate) || new Date()).getDay() || 7;
+    const day = prompt(
+      "День тижня:\n1 — Понеділок\n2 — Вівторок\n3 — Середа\n4 — Четвер\n5 — П'ятниця\n6 — Субота\n7 — Неділя",
+      String(task.weekday || defaultWeekday)
+    );
+    if (!day || !["1", "2", "3", "4", "5", "6", "7"].includes(day.trim())) return false;
+    task.weekday = Number(day.trim());
+    delete task.date;
+  } else {
+    delete task.weekday;
+    if (repeat === "monthly" || repeat === "yearly") {
+      const answerDate = allowNone && parseTaskDate(task.date)
+        ? task.date
+        : prompt("Дата першого повтору у форматі РРРР-ММ-ДД:", task.date || startDate);
+      if (answerDate === null) return false;
+      startDate = answerDate.trim();
+      if (!parseTaskDate(startDate)) { alert("Напиши дійсну дату у форматі РРРР-ММ-ДД."); return false; }
+      task.date = startDate;
+    } else {
+      delete task.date;
+    }
+  }
+  task.repeat = repeat;
+  task.startDate = startDate;
+  if (!task.completions) task.completions = {};
+  task.done = false;
+  return true;
 }
 
 function normalizeTaskTime(value) {
@@ -1403,10 +1547,10 @@ async function addTaskForDate(dateKey, weekday, returnView) {
     };
 
     if (task.type === "agreement") {
-      task.repeat = "weekly";
-      task.weekday = Number(weekday);
+      if (!askTaskRepeat(task, dateKey)) return;
 
       const time = prompt("О котрій годині? Наприклад 9:00 або 18:30", "");
+      if (time === null) return;
       const normalizedTime = normalizeTaskTime(time);
       if (!normalizedTime) {
         alert("Напиши час як 9:00 або 18:30.");
@@ -1429,6 +1573,7 @@ async function addTaskForDate(dateKey, weekday, returnView) {
         }
         task.time = normalizedTime;
       }
+      if (task.type !== "oneTime" && !askTaskRepeat(task, task.date, true)) return;
     }
 
     askTaskChime(task);
@@ -1478,18 +1623,7 @@ async function showWeek() {
     const dateKey = formatLocalDate(date);
 
     const tasks = data.tasks
-      .filter(task => {
-        if (task.done) return false;
-
-        const weeklyTask =
-          task.type === "agreement" &&
-          task.repeat === "weekly" &&
-          task.weekday === weekday;
-
-        const datedTask = task.date === dateKey;
-
-        return weeklyTask || datedTask;
-      })
+      .filter(task => taskOccursOnDate(task, date) && !taskDoneOnDate(task, dateKey))
       .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
 
     const dateLabel = date.toLocaleDateString("uk-UA", {
@@ -1505,10 +1639,10 @@ async function showWeek() {
           ${tasks.length
             ? tasks.map(task => `
                 <p>
-                  <button onclick="toggleWeekTask(${task.id})">☐</button>
+                  <button onclick="toggleWeekTask(${task.id}, '${dateKey}')">☐</button>
                   ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> — ` : ""}
                   ${linkifyTaskText(task.text)}
-                  <small>${typeNames[task.type] || ""}</small>
+                  <small>${taskRepeatLabel(task) || typeNames[task.type] || ""}</small>
                 </p>
               `).join("")
             : "<p>Тут поки тихо 🌿</p>"
@@ -1526,11 +1660,11 @@ async function showWeek() {
 
 window.showWeek = showWeek;
 
-async function toggleWeekTask(taskId) {
+async function toggleWeekTask(taskId, occurrenceDate = formatLocalDate(new Date())) {
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) return;
 
-  task.done = true;
+  setTaskOccurrenceDone(task, occurrenceDate, true);
   await syncBookProgressForTask(task);
   await saveData();
   showWeek();
@@ -1542,17 +1676,7 @@ window.toggleWeekTask = toggleWeekTask;
 let calendarCursor = new Date();
 
 function calendarTaskMatchesDate(task, date) {
-  const dateKey = formatLocalDate(date);
-  const weekday = date.getDay() === 0 ? 7 : date.getDay();
-
-  const weeklyTask =
-    task.type === "agreement" &&
-    task.repeat === "weekly" &&
-    task.weekday === weekday;
-
-  const datedTask = task.date === dateKey;
-
-  return weeklyTask || datedTask;
+  return taskOccursOnDate(task, date);
 }
 
 async function showCalendar(year, month) {
@@ -1601,19 +1725,20 @@ async function showCalendar(year, month) {
       ? tasks.map(task => {
           const folder = data.folders.find(f => f.id === task.folderId);
           const folderName = folder?.name || "Без папки";
+          const done = taskDoneOnDate(task, dateKey);
           return `
             <div
-              class="calendar-task ${task.done ? "calendar-task-done" : ""}"
-              onclick="openFolder(${task.folderId})"
-              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFolder(${task.folderId})}"
+              class="calendar-task ${done ? "calendar-task-done" : ""}"
+              onclick="openFolder(${task.folderId}, '${dateKey}')"
+              onkeydown="if(event.target===this&&(event.key==='Enter'||event.key===' ')){event.preventDefault();openFolder(${task.folderId}, '${dateKey}')}"
               role="button"
               tabindex="0"
               title="${escapeInboxHtml(folderName)}"
             >
-              ${task.done ? "✅ " : ""}
+              ${done ? "✅ " : ""}
               ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> ` : ""}
               ${linkifyTaskText(task.text)}
-              <small>${escapeInboxHtml(folderName)}</small>
+              <small>${escapeInboxHtml(folderName)}${taskRepeatLabel(task) ? " · " + taskRepeatLabel(task) : ""}</small>
             </div>
           `;
         }).join("")
@@ -1688,16 +1813,12 @@ async function showToday() {
 
   const todayTasks = data.tasks
     .filter(task => {
-      const isDatedToday = task.date === today;
-      const isWeeklyToday =
-        task.type === "agreement" &&
-        task.repeat === "weekly" &&
-        task.weekday === weekday;
-
+      if (taskDoneOnDate(task, today)) return false;
+      if (getTaskRepeat(task)) return taskOccursOnDate(task, now);
       const isDueOrOverdue = task.date && task.date <= today;
       const isUndated = !task.date && task.type !== "agreement";
 
-      return (isDueOrOverdue || isUndated || isWeeklyToday) && !task.done;
+      return isDueOrOverdue || isUndated;
     })
     .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
 
@@ -1722,7 +1843,7 @@ async function showToday() {
               </button>
               ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> — ` : ""}
               ${task.done ? `<s>${linkifyTaskText(task.text)}</s>` : linkifyTaskText(task.text)}
-              <small>${typeNames[task.type] || ""}</small>
+              <small>${taskRepeatLabel(task) || typeNames[task.type] || ""}</small>
             </p>
           `).join("")
         : "<p>На сьогодні справ немає 🌿</p>"
@@ -1732,9 +1853,11 @@ async function showToday() {
 }
 
 window.showToday = showToday;
-async function editTask(taskId, folderId) {
-  const task = data.tasks.find(t => t.id === taskId);
-  if (!task) return;
+async function editTask(taskId, folderId, occurrenceDate) {
+  await loadData();
+  const original = data.tasks.find(t => t.id === taskId);
+  if (!original) return;
+  const task = { ...original };
 
   const text = prompt("Текст справи:", task.text);
   if (!text || !text.trim()) return;
@@ -1764,24 +1887,17 @@ async function editTask(taskId, folderId) {
   task.type = types[answer];
 
   if (task.type === "agreement") {
-    const day = prompt(
-      "Обери день:\n1 — Понеділок\n2 — Вівторок\n3 — Середа\n4 — Четвер\n5 — П'ятниця\n6 — Субота\n7 — Неділя",
-      String(task.weekday || 1)
-    );
-
-    if (!["1","2","3","4","5","6","7"].includes(day)) return;
+    if (!askTaskRepeat(task, occurrenceDate)) return;
 
     const time = prompt("Час:", task.time || "");
+    if (time === null) return;
     const normalizedTime = normalizeTaskTime(time);
     if (!normalizedTime) {
       alert("Напиши час як 9:00 або 18:30.");
       return;
     }
 
-    task.repeat = "weekly";
-    task.weekday = Number(day);
     task.time = normalizedTime;
-    delete task.date;
     askTaskChime(task);
   } else {
     const date = prompt(
@@ -1797,8 +1913,7 @@ async function editTask(taskId, folderId) {
     );
 
     task.date = date.trim();
-    delete task.repeat;
-    delete task.weekday;
+    if (task.type === "oneTime") clearTaskRepeat(task);
 
     if (time?.trim()) {
       const normalizedTime = normalizeTaskTime(time);
@@ -1811,12 +1926,14 @@ async function editTask(taskId, folderId) {
       delete task.time;
     }
 
+    if (task.type !== "oneTime" && !askTaskRepeat(task, task.date, true)) return;
     askTaskChime(task);
   }
 
   delete task.chimedFor;
+  data.tasks = data.tasks.map(t => t.id === taskId ? task : t);
   await saveData();
-  openFolder(folderId);
+  openFolder(folderId, occurrenceDate);
 }
 
 window.editTask = editTask;
@@ -1846,7 +1963,7 @@ async function toggleTodayTask(taskId) {
     });
   });
 
-  task.done = true;
+  setTaskOccurrenceDone(task, formatLocalDate(new Date()), true);
   await syncBookProgressForTask(task);
   await saveData();
 
