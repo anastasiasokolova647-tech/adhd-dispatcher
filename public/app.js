@@ -829,7 +829,7 @@ function openFolder(id) {
 
       <div>
         ${tasks.length
-          ? tasks.map(task => `<p>🌸 <strong>${task.text}</strong></p>`).join("")
+          ? tasks.map(task => `<p>🌸 <strong>${linkifyTaskText(task.text)}</strong></p>`).join("")
           : "<p>Сад поки чекає на свою першу квітку 🌱</p>"
         }
       </div>
@@ -857,7 +857,7 @@ function openFolder(id) {
                 month: "long"
               })}`
             : ""}
-          — ${task.chime ? "🔔 " : ""}${task.text}
+          — ${task.chime ? "🔔 " : ""}${linkifyTaskText(task.text)}
           <button onclick="editTask(${task.id}, ${id})">✏️</button>
           <button onclick="deleteTask(${task.id}, ${id})">🗑️</button>
           ${task.done ? `<button onclick="celebrateTask(${task.id}, ${id})">🌷 Відсвяткувати</button>` : ""}
@@ -1069,6 +1069,37 @@ function escapeInboxHtml(text) {
     .replaceAll("'", "&#039;");
 }
 
+function linkifyTaskText(text) {
+  const source = String(text || "");
+  const urlPattern = /(?:https?:\/\/|www\.)[^\s]+/gi;
+  let result = "";
+  let lastIndex = 0;
+
+  for (const match of source.matchAll(urlPattern)) {
+    const start = match.index ?? 0;
+    result += escapeInboxHtml(source.slice(lastIndex, start));
+
+    let visible = match[0];
+    let trailing = "";
+
+    while (/[.,!?;:)\]]$/.test(visible)) {
+      trailing = visible.slice(-1) + trailing;
+      visible = visible.slice(0, -1);
+    }
+
+    const href = visible.toLowerCase().startsWith("www.")
+      ? "https://" + visible
+      : visible;
+
+    result += `<a class="task-link" href="${escapeInboxHtml(href)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${escapeInboxHtml(visible)}</a>${escapeInboxHtml(trailing)}`;
+
+    lastIndex = start + match[0].length;
+  }
+
+  result += escapeInboxHtml(source.slice(lastIndex));
+  return result;
+}
+
 function looksLikeInboxTask(text) {
   const t = normalizeInboxText(text);
 
@@ -1250,7 +1281,7 @@ async function showInbox() {
       ${data.inbox.length
         ? data.inbox.slice().reverse().map(item => `
             <p>
-              📝 ${escapeInboxHtml(item.text)}
+              📝 ${linkifyTaskText(item.text)}
               <button onclick="sortInboxItem(${item.id}, true)">🧭 Розібрати</button>
               <button onclick="deleteInboxItem(${item.id})">🗑️ Видалити</button>
             </p>
@@ -1571,16 +1602,19 @@ async function showCalendar(year, month) {
           const folder = data.folders.find(f => f.id === task.folderId);
           const folderName = folder?.name || "Без папки";
           return `
-            <button
+            <div
               class="calendar-task ${task.done ? "calendar-task-done" : ""}"
               onclick="openFolder(${task.folderId})"
+              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFolder(${task.folderId})}"
+              role="button"
+              tabindex="0"
               title="${escapeInboxHtml(folderName)}"
             >
               ${task.done ? "✅ " : ""}
               ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> ` : ""}
-              ${escapeInboxHtml(task.text)}
+              ${linkifyTaskText(task.text)}
               <small>${escapeInboxHtml(folderName)}</small>
-            </button>
+            </div>
           `;
         }).join("")
       : "";
@@ -1687,7 +1721,7 @@ async function showToday() {
                 ${task.done ? "✅" : "☐"}
               </button>
               ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> — ` : ""}
-              ${task.done ? `<s>${task.text}</s>` : task.text}
+              ${task.done ? `<s>${linkifyTaskText(task.text)}</s>` : linkifyTaskText(task.text)}
               <small>${typeNames[task.type] || ""}</small>
             </p>
           `).join("")
