@@ -507,7 +507,7 @@ let reminderCheckBusy = false;
 let reminderMelodyUnlocked = false;
 let activeTaskAlarmAudio = null;
 
-const ALARM_MELODY_URL = "/alarm-light-come-home.mp3?v=1";
+const ALARM_MELODY_URL = "/alarm-light-come-home.mp3?v=2";
 const reminderMelody = new Audio(ALARM_MELODY_URL);
 reminderMelody.preload = "auto";
 reminderMelody.loop = true;
