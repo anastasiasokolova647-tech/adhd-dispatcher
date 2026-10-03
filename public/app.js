@@ -1700,10 +1700,75 @@ window.toggleWeekTask = toggleWeekTask;
 
 
 let calendarCursor = new Date();
+let calendarSelectedDate = "";
 
 function calendarTaskMatchesDate(task, date) {
   return taskOccursOnDate(task, date);
 }
+
+function calendarTasksForDate(date) {
+  return data.tasks
+    .filter(task => calendarTaskMatchesDate(task, date))
+    .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
+}
+
+function calendarTasksHtml(tasks, dateKey) {
+  return tasks.map(task => {
+    const folder = data.folders.find(f => f.id === task.folderId);
+    const folderName = folder?.name || "Без папки";
+    const done = taskDoneOnDate(task, dateKey);
+    return `
+      <div
+        class="calendar-task ${done ? "calendar-task-done" : ""}"
+        onclick="openFolder(${task.folderId}, '${dateKey}')"
+        onkeydown="if(event.target===this&&(event.key==='Enter'||event.key===' ')){event.preventDefault();openFolder(${task.folderId}, '${dateKey}')}"
+        role="button"
+        tabindex="0"
+        title="${escapeInboxHtml(folderName)}"
+      >
+        ${done ? "✅ " : ""}
+        ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> ` : ""}
+        ${linkifyTaskText(task.text)}
+        <small>${escapeInboxHtml(folderName)}${taskRepeatLabel(task) ? " · " + taskRepeatLabel(task) : ""}</small>
+        <button onclick="event.stopPropagation(); editCalendarTask(${task.id})" title="Редагувати" style="padding:2px 5px; min-width:0; width:auto; font-size:14px; line-height:1; margin-left:6px; vertical-align:middle;">✏️</button>
+      </div>
+    `;
+  }).join("");
+}
+
+function showCalendarDay(dateKey) {
+  const date = parseTaskDate(dateKey);
+  if (!date || formatLocalDate(date) !== dateKey ||
+      date.getFullYear() !== calendarCursor.getFullYear() ||
+      date.getMonth() !== calendarCursor.getMonth()) return;
+
+  calendarSelectedDate = dateKey;
+  const details = document.getElementById("calendarDayDetails");
+  if (!details) return;
+
+  document.querySelectorAll(".calendar-select-date").forEach(button => {
+    const selected = button.dataset.date === dateKey;
+    button.setAttribute("aria-pressed", String(selected));
+    button.closest(".calendar-day").classList.toggle("calendar-day-selected", selected);
+  });
+
+  const tasks = calendarTasksForDate(date);
+  const title = date.toLocaleDateString("uk-UA", {
+    weekday: "long", day: "numeric", month: "long"
+  });
+  details.innerHTML = `
+    <h3 id="calendarDayTitle">${title}</h3>
+    <button
+      class="calendar-add-day-task"
+      onclick="addTaskForDate('${dateKey}', ${date.getDay() === 0 ? 7 : date.getDay()}, 'calendar')"
+    >＋ Додати справу</button>
+    <div class="calendar-tasks">
+      ${tasks.length ? calendarTasksHtml(tasks, dateKey) : "<p>На цей день справ немає 🌿</p>"}
+    </div>
+  `;
+}
+
+window.showCalendarDay = showCalendarDay;
 
 async function showCalendar(year, month) {
   await loadData();
@@ -1725,6 +1790,13 @@ async function showCalendar(year, month) {
   const mondayOffset = (firstDay.getDay() + 6) % 7;
   const totalCells = Math.ceil((mondayOffset + lastDay.getDate()) / 7) * 7;
   const todayKey = formatLocalDate(new Date());
+  const monthKey = formatLocalDate(firstDay).slice(0, 7);
+
+  if (calendarSelectedDate.slice(0, 7) !== monthKey) {
+    calendarSelectedDate = todayKey.slice(0, 7) === monthKey
+      ? todayKey
+      : formatLocalDate(firstDay);
+  }
 
   const monthTitle = calendarCursor.toLocaleDateString("uk-UA", {
     month: "long",
@@ -1743,36 +1815,24 @@ async function showCalendar(year, month) {
     const date = new Date(yearValue, monthValue, dayNumber);
     const dateKey = formatLocalDate(date);
 
-    const tasks = data.tasks
-      .filter(task => calendarTaskMatchesDate(task, date))
-      .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
-
-    const taskHtml = tasks.length
-      ? tasks.map(task => {
-          const folder = data.folders.find(f => f.id === task.folderId);
-          const folderName = folder?.name || "Без папки";
-          const done = taskDoneOnDate(task, dateKey);
-          return `
-            <div
-              class="calendar-task ${done ? "calendar-task-done" : ""}"
-              onclick="openFolder(${task.folderId}, '${dateKey}')"
-              onkeydown="if(event.target===this&&(event.key==='Enter'||event.key===' ')){event.preventDefault();openFolder(${task.folderId}, '${dateKey}')}"
-              role="button"
-              tabindex="0"
-              title="${escapeInboxHtml(folderName)}"
-            >
-              ${done ? "✅ " : ""}
-              ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> ` : ""}
-              ${linkifyTaskText(task.text)}
-              <small>${escapeInboxHtml(folderName)}${taskRepeatLabel(task) ? " · " + taskRepeatLabel(task) : ""}</small>
-              <button onclick="event.stopPropagation(); editCalendarTask(${task.id})" title="Редагувати" style="padding:2px 5px; min-width:0; width:auto; font-size:14px; line-height:1; margin-left:6px; vertical-align:middle;">✏️</button>
-            </div>
-          `;
-        }).join("")
-      : "";
+    const tasks = calendarTasksForDate(date);
+    const taskHtml = calendarTasksHtml(tasks, dateKey);
+    const selected = dateKey === calendarSelectedDate;
+    const dateLabel = date.toLocaleDateString("uk-UA", { day: "numeric", month: "long" });
 
     return `
-      <div class="calendar-day ${dateKey === todayKey ? "calendar-day-today" : ""}">
+      <div class="calendar-day ${dateKey === todayKey ? "calendar-day-today" : ""} ${selected ? "calendar-day-selected" : ""}">
+        <button
+          class="calendar-select-date"
+          data-date="${dateKey}"
+          onclick="showCalendarDay('${dateKey}')"
+          aria-pressed="${selected}"
+          aria-controls="calendarDayDetails"
+          aria-label="${dateLabel}; справ: ${tasks.length}"
+        >
+          <span>${dayNumber}</span>
+          ${tasks.length ? `<span class="calendar-task-count" aria-hidden="true">${tasks.length}</span>` : ""}
+        </button>
         <div class="calendar-date-row">
           <div class="calendar-date">${dayNumber}</div>
           <button
@@ -1796,6 +1856,8 @@ async function showCalendar(year, month) {
 
     <button class="calendar-today-button" onclick="goCalendarToday()">Сьогодні</button>
 
+    <p class="calendar-mobile-hint">Торкнись дати — справи з’являться нижче.</p>
+
     <div class="calendar-scroll">
       <div class="calendar-grid calendar-weekdays">
         ${weekdays.map(day => `<div>${day}</div>`).join("")}
@@ -1804,7 +1866,11 @@ async function showCalendar(year, month) {
         ${cells}
       </div>
     </div>
+
+    <section id="calendarDayDetails" class="calendar-day-details" aria-labelledby="calendarDayTitle" aria-live="polite"></section>
   `;
+
+  showCalendarDay(calendarSelectedDate);
 }
 
 window.showCalendar = showCalendar;
@@ -1822,6 +1888,7 @@ window.changeCalendarMonth = changeCalendarMonth;
 
 function goCalendarToday() {
   calendarCursor = new Date();
+  calendarSelectedDate = formatLocalDate(calendarCursor);
   showCalendar();
 }
 
