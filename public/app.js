@@ -1378,6 +1378,20 @@ function getTaskRepeat(task) {
   return ["daily", "weekly", "monthly", "yearly"].includes(task.repeat) ? task.repeat : "";
 }
 
+function getTaskWeekdays(task) {
+  const days = Array.isArray(task.weekdays) && task.weekdays.length
+    ? task.weekdays
+    : [task.weekday];
+  return [...new Set(days.map(Number).filter(day => Number.isInteger(day) && day >= 1 && day <= 7))]
+    .sort((a, b) => a - b);
+}
+
+function parseTaskWeekdays(value) {
+  const input = String(value || "").trim();
+  if (!/^[1-7](?:[\s,;]+[1-7])*$/.test(input)) return [];
+  return [...new Set(input.split(/[\s,;]+/).map(Number))].sort((a, b) => a - b);
+}
+
 function taskOccursOnDate(task, date) {
   const dateKey = formatLocalDate(date);
   const repeat = getTaskRepeat(task);
@@ -1386,7 +1400,7 @@ function taskOccursOnDate(task, date) {
   if (start && dateKey < formatLocalDate(start)) return false;
 
   if (repeat === "daily") return true;
-  if (repeat === "weekly") return Number(task.weekday) === (date.getDay() || 7);
+  if (repeat === "weekly") return getTaskWeekdays(task).includes(date.getDay() || 7);
 
   const anchor = parseTaskDate(task.date) || parseTaskDate(task.startDate);
   if (!anchor || dateKey < formatLocalDate(anchor)) return false;
@@ -1451,7 +1465,7 @@ function taskRepeatLabel(task) {
 }
 
 function clearTaskRepeat(task) {
-  for (const key of ["repeat", "weekday", "startDate", "completions", "completedThrough"]) delete task[key];
+  for (const key of ["repeat", "weekday", "weekdays", "startDate", "completions", "completedThrough"]) delete task[key];
 }
 
 function askTaskRepeat(task, selectedDate, allowNone = false) {
@@ -1470,15 +1484,26 @@ function askTaskRepeat(task, selectedDate, allowNone = false) {
   let startDate = (allowNone && selectedDate) || task.startDate || selectedDate || formatLocalDate(new Date());
   if (repeat === "weekly") {
     const defaultWeekday = (parseTaskDate(selectedDate) || new Date()).getDay() || 7;
-    const day = prompt(
-      "День тижня:\n1 — Понеділок\n2 — Вівторок\n3 — Середа\n4 — Четвер\n5 — П'ятниця\n6 — Субота\n7 — Неділя",
-      String(task.weekday || defaultWeekday)
-    );
-    if (!day || !["1", "2", "3", "4", "5", "6", "7"].includes(day.trim())) return false;
-    task.weekday = Number(day.trim());
+    const currentDays = getTaskWeekdays(task);
+    let dayInput = currentDays.length ? currentDays.join(",") : String(defaultWeekday);
+    let days;
+    while (true) {
+      const answerDays = prompt(
+        "Дні тижня:\n1 — Понеділок\n2 — Вівторок\n3 — Середа\n4 — Четвер\n5 — П'ятниця\n6 — Субота\n7 — Неділя\n\nМожна кілька днів через кому, наприклад 1,3,5.",
+        dayInput
+      );
+      if (answerDays === null) return false;
+      days = parseTaskWeekdays(answerDays);
+      if (days.length) break;
+      alert("Напиши номери днів від 1 до 7 через кому. Наприклад: 1,3,5.");
+      dayInput = answerDays;
+    }
+    task.weekdays = days;
+    task.weekday = days[0];
     delete task.date;
   } else {
     delete task.weekday;
+    delete task.weekdays;
     if (repeat === "monthly" || repeat === "yearly") {
       const answerDate = allowNone && parseTaskDate(task.date)
         ? task.date

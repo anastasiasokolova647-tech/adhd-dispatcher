@@ -18,6 +18,7 @@ function app(tasks, answers = []) {
   const main = { innerHTML: "" };
   const elements = new Map();
   const alerts = [];
+  const prompts = [];
   let writes = 0;
   const context = vm.createContext({
     console, Date: AppDate, Audio: class {}, navigator: {},
@@ -32,7 +33,8 @@ function app(tasks, answers = []) {
     setTimeout() {}, setInterval() {}, requestAnimationFrame() {},
     confirm: () => false,
     alert: text => alerts.push(text),
-    prompt() {
+    prompt(message, value) {
+      prompts.push({ message, value });
       assert.ok(answers.length, "Unexpected prompt");
       return answers.shift();
     },
@@ -42,7 +44,7 @@ function app(tasks, answers = []) {
   context.playCelebration = () => {};
   context.askInboxFolder = () => ({ id: 10, name: "Квартира" });
   return {
-    context, main, alerts,
+    context, main, alerts, prompts,
     state: () => JSON.parse(vm.runInContext("JSON.stringify(data)", context)),
     saved: () => JSON.parse(storage.get("friendly-dayplanner-data-v1")),
     writes: () => writes,
@@ -210,4 +212,91 @@ test("a completed routine does not ring today but its next occurrence does", asy
   await a.context.checkTimedTaskChimes();
   assert.equal(played, 1);
   assert.equal(a.saved().tasks[0].chimedFor, "2026-10-03|08:00");
+});
+
+test("a weekly routine added from a folder accepts several selected days", async () => {
+  const a = app([], ["Англійська", "1", "2", "1, 3, 5", "18:00"]);
+  await a.context.addTask(10, "2026-10-02");
+  const task = a.saved().tasks[0];
+  assert.ok(task, "The weekly task must be saved after selecting multiple days");
+  assert.equal(task.repeat, "weekly");
+  assert.deepEqual(task.weekdays, [1, 3, 5]);
+  assert.equal(task.time, "18:00");
+  for (const date of ["2026-10-02", "2026-10-05", "2026-10-07", "2026-10-09"]) {
+    assert.equal(on(a.context, task, date), true);
+  }
+  for (const date of ["2026-10-01", "2026-10-03", "2026-10-06", "2026-10-08"]) {
+    assert.equal(on(a.context, task, date), false);
+  }
+  assert.deepEqual(a.alerts, []);
+});
+
+test("adding from the calendar saves all weekdays and completing one leaves the others visible", async () => {
+  const a = app([], ["Прогулянка", "1", "2", "5; 6 7 5", "9:00"]);
+  await a.context.addTaskForDate("2026-10-02", 5, "calendar");
+  const task = a.saved().tasks[0];
+  assert.ok(task, "The calendar must save the weekly task");
+  assert.deepEqual(task.weekdays, [5, 6, 7]);
+  await a.context.showWeek();
+  assert.equal((a.main.innerHTML.match(/Прогулянка/g) || []).length, 3);
+  await a.context.toggleWeekTask(task.id, "2026-10-03");
+  await a.context.showWeek();
+  assert.equal((a.main.innerHTML.match(/Прогулянка/g) || []).length, 2);
+  assert.ok(a.main.innerHTML.includes("2026-10-04"));
+  assert.equal(a.context.taskDoneOnDate(a.saved().tasks[0], "2026-10-04"), false);
+  assert.equal(a.context.taskDoneOnDate(a.saved().tasks[0], "2026-10-10"), false);
+  await a.context.showCalendar(2026, 9);
+  assert.equal((a.main.innerHTML.match(/Прогулянка/g) || []).length, 14);
+  assert.equal((a.main.innerHTML.match(/class="calendar-task calendar-task-done"/g) || []).length, 1);
+  a.setDate(2026, 10, 4);
+  await a.context.showToday();
+  assert.ok(a.main.innerHTML.includes("Прогулянка"));
+});
+
+test("a repeating deadline can also select several weekdays", async () => {
+  const a = app([], ["Заняття", "3", "2026-10-02", "", "2", "2,4"]);
+  await a.context.addTask(10);
+  const task = a.saved().tasks[0];
+  assert.ok(task, "The repeating deadline must be saved");
+  assert.equal(task.type, "ownDeadline");
+  assert.deepEqual(task.weekdays, [2, 4]);
+  assert.equal(on(a.context, task, "2026-10-06"), true);
+  assert.equal(on(a.context, task, "2026-10-08"), true);
+  assert.equal(on(a.context, task, "2026-10-07"), false);
+});
+
+test("editing a weekly routine keeps its selected days as the default", async () => {
+  const original = daily({ repeat: "weekly", weekdays: [2, 4], weekday: 2 });
+  const a = app([original], ["Англійська", "1", "2", "2,4,7", "18:00"]);
+  await a.context.editTask(11, 10);
+  const task = a.saved().tasks[0];
+  assert.deepEqual(task.weekdays, [2, 4, 7]);
+  assert.equal(a.prompts[3].value, "2,4");
+  assert.equal(on(a.context, task, "2026-10-04"), true);
+  assert.deepEqual(a.alerts, []);
+});
+
+test("an invalid weekday selection can be corrected without starting the task again", async () => {
+  const a = app([], ["Прогулянка", "1", "2", "1,8", "2,4", "9:00"]);
+  await a.context.addTask(10);
+  assert.deepEqual(a.saved().tasks[0]?.weekdays, [2, 4]);
+  assert.equal(a.alerts.length, 1);
+  const b = app([], ["Прогулянка", "1", "2", "1,8", null]);
+  await b.context.addTask(10);
+  assert.equal(b.saved().tasks.length, 0);
+  assert.equal(b.writes(), 0);
+});
+
+test("switching away from a weekly routine clears its selected weekdays", async () => {
+  const original = daily({ repeat: "weekly", weekdays: [2, 4], weekday: 2 });
+  const a = app([original], ["Прогулянка", "1", "1", "9:00"]);
+  await a.context.editTask(11, 10);
+  assert.equal(a.saved().tasks[0].repeat, "daily");
+  assert.equal(a.saved().tasks[0].weekdays, undefined);
+  assert.equal(a.saved().tasks[0].weekday, undefined);
+  assert.equal(on(a.context, a.saved().tasks[0], "2026-10-04"), true);
+  const b = app([original], ["Прогулянка", "4", "2026-10-04", ""]);
+  await b.context.editTask(11, 10);
+  assert.equal(b.saved().tasks[0].repeat, undefined);
+  assert.equal(b.saved().tasks[0].weekdays, undefined);
 });
