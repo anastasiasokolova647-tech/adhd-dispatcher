@@ -1,4 +1,4 @@
-﻿const CACHE_NAME = "chas-dlia-sebe-v1";
+const CACHE_NAME = "chas-dlia-sebe-v4";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -13,3 +13,4 @@ self.addEventListener("fetch", event => {
     fetch(event.request).catch(() => caches.match(event.request))
   );
 });
+

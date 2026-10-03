@@ -1668,6 +1668,7 @@ async function showWeek() {
                   ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> — ` : ""}
                   ${linkifyTaskText(task.text)}
                   <small>${taskRepeatLabel(task) || typeNames[task.type] || ""}</small>
+                  <button onclick="editWeekTask(${task.id})" title="Редагувати" style="padding:2px 5px; min-width:0; width:auto; font-size:14px; line-height:1; margin-left:6px; vertical-align:middle;">✏️</button>
                 </p>
               `).join("")
             : "<p>Тут поки тихо 🌿</p>"
@@ -1764,6 +1765,7 @@ async function showCalendar(year, month) {
               ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> ` : ""}
               ${linkifyTaskText(task.text)}
               <small>${escapeInboxHtml(folderName)}${taskRepeatLabel(task) ? " · " + taskRepeatLabel(task) : ""}</small>
+              <button onclick="event.stopPropagation(); editCalendarTask(${task.id})" title="Редагувати" style="padding:2px 5px; min-width:0; width:auto; font-size:14px; line-height:1; margin-left:6px; vertical-align:middle;">✏️</button>
             </div>
           `;
         }).join("")
@@ -1856,6 +1858,12 @@ async function showToday() {
 
   document.querySelector("main").innerHTML = `
     <h2>☀️ Сьогодні</h2>
+
+    <div style="margin:12px 0 18px;">
+      <button onclick="showBookQueue()" style="width:auto; padding:10px 14px;">
+        📖 Уривок для тебе
+      </button>
+    </div>
     <h3>${dateText}</h3>
     <button class="inline-add-task" onclick="addTaskForDate('${today}', ${weekday}, 'today')">➕ Додати на сьогодні</button>
 
@@ -1869,6 +1877,7 @@ async function showToday() {
               ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> — ` : ""}
               ${task.done ? `<s>${linkifyTaskText(task.text)}</s>` : linkifyTaskText(task.text)}
               <small>${taskRepeatLabel(task) || typeNames[task.type] || ""}</small>
+              <button onclick="editTodayTask(${task.id})" title="Редагувати" style="padding:2px 5px; min-width:0; width:auto; font-size:14px; line-height:1; margin-left:6px; vertical-align:middle;">✏️</button>
             </p>
           `).join("")
         : "<p>На сьогодні справ немає 🌿</p>"
@@ -1960,6 +1969,30 @@ async function editTask(taskId, folderId, occurrenceDate) {
   await saveData();
   openFolder(folderId, occurrenceDate);
 }
+
+async function editTodayTask(taskId) {
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  await editTask(taskId, task.folderId);
+  await showToday();
+}
+window.editTodayTask = editTodayTask;
+
+async function editWeekTask(taskId) {
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  await editTask(taskId, task.folderId);
+  await showWeek();
+}
+window.editWeekTask = editWeekTask;
+
+async function editCalendarTask(taskId) {
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  await editTask(taskId, task.folderId);
+  await showCalendar();
+}
+window.editCalendarTask = editCalendarTask;
 
 window.editTask = editTask;
 async function toggleTodayTask(taskId) {
