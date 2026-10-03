@@ -425,3 +425,22 @@ small {
   }
 }
 
+@media (max-width: 600px) {
+  main {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  main p {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .task-link {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}
