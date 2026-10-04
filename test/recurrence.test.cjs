@@ -1,4 +1,4 @@
-const test = require("node:test");
+﻿const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -331,4 +331,28 @@ test("two task times can chime independently on the same day", async () => {
     "2026-10-04|08:30",
     "2026-10-04|22:00"
   ]);
+});
+
+test("a completed task time stays quiet while the later time can still chime", async () => {
+  const task = daily({ chime: true, time: "08:30" });
+  task.times = ["08:30", "22:00"];
+
+  const a = app([task]);
+  let played = 0;
+  a.context.playTaskChime = async () => { played++; return true; };
+
+  a.setDate(2026, 10, 4, 8, 20);
+  await a.context.loadData();
+  await a.context.toggleTodayTask(11, "08:30");
+
+  assert.equal(a.context.taskTimeDoneOnDate(a.saved().tasks[0], "2026-10-04", "08:30"), true);
+  assert.equal(a.context.taskTimeDoneOnDate(a.saved().tasks[0], "2026-10-04", "22:00"), false);
+
+  a.setDate(2026, 10, 4, 8, 31);
+  await a.context.checkTimedTaskChimes();
+  assert.equal(played, 0);
+
+  a.setDate(2026, 10, 4, 22, 1);
+  await a.context.checkTimedTaskChimes();
+  assert.equal(played, 1);
 });

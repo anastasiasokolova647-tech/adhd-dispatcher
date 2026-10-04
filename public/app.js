@@ -702,6 +702,7 @@ async function checkTimedTaskChimes() {
       if (task.chimedFor) chimedKeys.add(task.chimedFor);
 
       for (const normalizedTime of taskTimes) {
+        if (taskTimeDoneOnDate(task, today, normalizedTime)) continue;
         const [dueHours, dueMinutesPart] = normalizedTime.split(":").map(Number);
         const dueMinutes = dueHours * 60 + dueMinutesPart;
         if (nowMinutes < dueMinutes) continue;
@@ -1441,6 +1442,40 @@ function normalizeRecurringTaskProgress() {
   return changed;
 }
 
+function taskTimeDoneOnDate(task, dateKey, time) {
+  const times = getTaskTimes(task);
+  if (times.length <= 1) return taskDoneOnDate(task, dateKey);
+
+  const normalizedTime = normalizeTaskTime(time);
+  if (!normalizedTime) return false;
+  const key = `${dateKey}|${normalizedTime}`;
+
+  if (task.timeCompletions && Object.prototype.hasOwnProperty.call(task.timeCompletions, key)) {
+    return task.timeCompletions[key] === true;
+  }
+
+  return taskDoneOnDate(task, dateKey);
+}
+
+function setTaskTimeDone(task, dateKey, time, done) {
+  const times = getTaskTimes(task);
+  if (times.length <= 1) {
+    setTaskOccurrenceDone(task, dateKey, done);
+    return;
+  }
+
+  if (!task.timeCompletions || typeof task.timeCompletions !== "object" || Array.isArray(task.timeCompletions)) {
+    task.timeCompletions = {};
+  }
+
+  const normalizedTime = normalizeTaskTime(time);
+  if (!normalizedTime) return;
+
+  task.timeCompletions[`${dateKey}|${normalizedTime}`] = done;
+
+  const allDone = times.every(t => task.timeCompletions[`${dateKey}|${t}`] === true);
+  setTaskOccurrenceDone(task, dateKey, allDone);
+}
 function setTaskOccurrenceDone(task, dateKey, done) {
   if (getTaskRepeat(task)) {
     if (!task.completions || typeof task.completions !== "object" || Array.isArray(task.completions)) {
@@ -1963,11 +1998,11 @@ async function showToday() {
       ${todayTasks.length
         ? todayTasks.map(task => `
             <p>
-              <button onclick="toggleTodayTask(${task.id})">
-                ${task.done ? "✅" : "☐"}
-              </button>
-              ${task.chime ? "🔔 " : ""}${getTaskTimeLabel(task) ? `<strong>${getTaskTimeLabel(task)}</strong> — ` : ""}
-              ${task.done ? `<s>${linkifyTaskText(task.text)}</s>` : linkifyTaskText(task.text)}
+              ${getTaskTimes(task).length > 1
+                ? getTaskTimes(task).map(time => `<button onclick="toggleTodayTask(${task.id}, '${time}')">${taskTimeDoneOnDate(task, today, time) ? "✅" : "☐"} <strong>${time}</strong></button>`).join(" ")
+                : `<button onclick="toggleTodayTask(${task.id})">${taskDoneOnDate(task, today) ? "✅" : "☐"}</button> ${task.chime ? "🔔 " : ""}${getTaskTimeLabel(task) ? `<strong>${getTaskTimeLabel(task)}</strong> — ` : ""}`
+              }
+              ${linkifyTaskText(task.text)}
               <small>${taskRepeatLabel(task) || typeNames[task.type] || ""}</small>
               <button onclick="editTodayTask(${task.id})" title="Редагувати" style="padding:2px 5px; min-width:0; width:auto; font-size:14px; line-height:1; margin-left:6px; vertical-align:middle;">✏️</button>
             </p>
@@ -2087,7 +2122,7 @@ async function editCalendarTask(taskId) {
 window.editCalendarTask = editCalendarTask;
 
 window.editTask = editTask;
-async function toggleTodayTask(taskId) {
+async function toggleTodayTask(taskId, time = null) {
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) return;
 
@@ -2113,7 +2148,13 @@ async function toggleTodayTask(taskId) {
     });
   });
 
-  setTaskOccurrenceDone(task, formatLocalDate(new Date()), true);
+  const dateKey = formatLocalDate(new Date());
+  if (time) {
+    const done = !taskTimeDoneOnDate(task, dateKey, time);
+    setTaskTimeDone(task, dateKey, time, done);
+  } else {
+    setTaskOccurrenceDone(task, dateKey, true);
+  }
   await syncBookProgressForTask(task);
   await saveData();
 
@@ -2260,12 +2301,3 @@ function showCalmCorner() {
 }
 
 window.showCalmCorner = showCalmCorner;
-
-
-
-
-
-
-
-
-
