@@ -1,4 +1,4 @@
-let data = { folders: [], tasks: [] };
+﻿let data = { folders: [], tasks: [] };
 
 const typeNames = {
   agreement: "🔁 Регулярне · домовленість",
@@ -516,9 +516,10 @@ reminderMelody.volume = 0.82;
 reminderMelody.playsInline = true;
 
 function askTaskChime(task) {
-  if (!task.time) {
+  if (!getTaskTimes(task).length) {
     task.chime = false;
     delete task.chimedFor;
+    delete task.chimedForKeys;
     return;
   }
 
@@ -693,27 +694,31 @@ async function checkTimedTaskChimes() {
     const today = formatLocalDate(now);
 
     for (const task of data.tasks || []) {
-      if (taskDoneOnDate(task, today) || !task.chime || !task.time) continue;
+      const taskTimes = getTaskTimes(task);
+      if (taskDoneOnDate(task, today) || !task.chime || !taskTimes.length) continue;
       if (!taskReminderMatchesToday(task, now)) continue;
 
-      const normalizedTime = normalizeTaskTime(task.time);
-      if (!normalizedTime) continue;
+      const chimedKeys = new Set(Array.isArray(task.chimedForKeys) ? task.chimedForKeys : []);
+      if (task.chimedFor) chimedKeys.add(task.chimedFor);
 
-      const [dueHours, dueMinutesPart] = normalizedTime.split(":").map(Number);
-      const dueMinutes = dueHours * 60 + dueMinutesPart;
-      if (nowMinutes < dueMinutes) continue;
+      for (const normalizedTime of taskTimes) {
+        const [dueHours, dueMinutesPart] = normalizedTime.split(":").map(Number);
+        const dueMinutes = dueHours * 60 + dueMinutesPart;
+        if (nowMinutes < dueMinutes) continue;
 
-      const reminderKey = `${today}|${task.time}`;
-      if (task.chimedFor === reminderKey) continue;
+        const reminderKey = `${today}|${normalizedTime}`;
+        if (chimedKeys.has(reminderKey)) continue;
 
-      const played = await playTaskChime();
-      if (!played) continue;
+        const played = await playTaskChime();
+        if (!played) continue;
 
-      task.chimedFor = reminderKey;
-      showTaskChimeToast(task);
-      await saveData();
-    }
-  } catch (error) {
+        chimedKeys.add(reminderKey);
+        task.chimedFor = reminderKey;
+        task.chimedForKeys = [...chimedKeys].filter(key => key.startsWith(`${today}|`));
+        showTaskChimeToast(task);
+        await saveData();
+      }
+    }  } catch (error) {
     console.warn("Перевірка дзинь-дзинь не вдалася:", error);
   } finally {
     reminderCheckBusy = false;
@@ -953,15 +958,15 @@ async function addTask(folderId, selectedDate) {
     if (task.type === "agreement") {
       if (!askTaskRepeat(task, selectedDate)) return;
 
-      const time = prompt("О котрій годині? Наприклад 9:00 або 18:30", "");
+      const time = prompt("О котрій годині? Можна кілька: 08:30, 22:00", "");
       if (time === null) return;
-      const normalizedTime = normalizeTaskTime(time);
-      if (!normalizedTime) {
-        alert("Напиши час як 9:00 або 18:30.");
+      const normalizedTimes = normalizeTaskTimes(time);
+      if (!normalizedTimes?.length) {
+        alert("Напиши час як 08:30 або кілька через кому: 08:30, 22:00.");
         return;
       }
-
-      task.time = normalizedTime;
+      task.times = normalizedTimes;
+      task.time = normalizedTimes[0];
     }
 
     if (task.type === "externalDeadline" || task.type === "ownDeadline") {
@@ -1534,6 +1539,25 @@ function normalizeTaskTime(value) {
   return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0");
 }
 
+function normalizeTaskTimes(value) {
+  const parts = String(value || "").split(/[,;]/).map(v => v.trim()).filter(Boolean);
+  if (!parts.length) return [];
+  const times = parts.map(normalizeTaskTime);
+  if (times.some(time => !time)) return null;
+  return [...new Set(times)].sort();
+}
+function getTaskTimes(task) {
+  if (Array.isArray(task?.times) && task.times.length) {
+    return [...new Set(task.times.map(normalizeTaskTime).filter(Boolean))].sort();
+  }
+
+  const time = normalizeTaskTime(task?.time);
+  return time ? [time] : [];
+}
+
+function getTaskTimeLabel(task) {
+  return getTaskTimes(task).join(", ");
+}
 async function addTaskForDate(dateKey, weekday, returnView) {
   try {
     await loadData();
@@ -1574,14 +1598,15 @@ async function addTaskForDate(dateKey, weekday, returnView) {
     if (task.type === "agreement") {
       if (!askTaskRepeat(task, dateKey)) return;
 
-      const time = prompt("О котрій годині? Наприклад 9:00 або 18:30", "");
+      const time = prompt("О котрій годині? Можна кілька: 08:30, 22:00", "");
       if (time === null) return;
-      const normalizedTime = normalizeTaskTime(time);
-      if (!normalizedTime) {
-        alert("Напиши час як 9:00 або 18:30.");
+      const normalizedTimes = normalizeTaskTimes(time);
+      if (!normalizedTimes?.length) {
+        alert("Напиши час як 08:30 або кілька через кому: 08:30, 22:00.");
         return;
       }
-      task.time = normalizedTime;
+      task.times = normalizedTimes;
+      task.time = normalizedTimes[0];
     } else {
       task.date = dateKey;
 
@@ -1665,7 +1690,7 @@ async function showWeek() {
             ? tasks.map(task => `
                 <p>
                   <button onclick="toggleWeekTask(${task.id}, '${dateKey}')">☐</button>
-                  ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> — ` : ""}
+                  ${task.chime ? "🔔 " : ""}${getTaskTimeLabel(task) ? `<strong>${getTaskTimeLabel(task)}</strong> — ` : ""}
                   ${linkifyTaskText(task.text)}
                   <small>${taskRepeatLabel(task) || typeNames[task.type] || ""}</small>
                   <button onclick="editWeekTask(${task.id})" title="Редагувати" style="padding:2px 5px; min-width:0; width:auto; font-size:14px; line-height:1; margin-left:6px; vertical-align:middle;">✏️</button>
@@ -1727,7 +1752,7 @@ function calendarTasksHtml(tasks, dateKey) {
         title="${escapeInboxHtml(folderName)}"
       >
         ${done ? "✅ " : ""}
-        ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> ` : ""}
+        ${task.chime ? "🔔 " : ""}${getTaskTimeLabel(task) ? `<strong>${getTaskTimeLabel(task)}</strong> ` : ""}
         ${linkifyTaskText(task.text)}
         <small>${escapeInboxHtml(folderName)}${taskRepeatLabel(task) ? " · " + taskRepeatLabel(task) : ""}</small>
         <button onclick="event.stopPropagation(); editCalendarTask(${task.id})" title="Редагувати" style="padding:2px 5px; min-width:0; width:auto; font-size:14px; line-height:1; margin-left:6px; vertical-align:middle;">✏️</button>
@@ -1941,7 +1966,7 @@ async function showToday() {
               <button onclick="toggleTodayTask(${task.id})">
                 ${task.done ? "✅" : "☐"}
               </button>
-              ${task.chime ? "🔔 " : ""}${task.time ? `<strong>${task.time}</strong> — ` : ""}
+              ${task.chime ? "🔔 " : ""}${getTaskTimeLabel(task) ? `<strong>${getTaskTimeLabel(task)}</strong> — ` : ""}
               ${task.done ? `<s>${linkifyTaskText(task.text)}</s>` : linkifyTaskText(task.text)}
               <small>${taskRepeatLabel(task) || typeNames[task.type] || ""}</small>
               <button onclick="editTodayTask(${task.id})" title="Редагувати" style="padding:2px 5px; min-width:0; width:auto; font-size:14px; line-height:1; margin-left:6px; vertical-align:middle;">✏️</button>
@@ -1992,13 +2017,13 @@ async function editTask(taskId, folderId, occurrenceDate) {
 
     const time = prompt("Час:", task.time || "");
     if (time === null) return;
-    const normalizedTime = normalizeTaskTime(time);
-    if (!normalizedTime) {
-      alert("Напиши час як 9:00 або 18:30.");
-      return;
-    }
-
-    task.time = normalizedTime;
+    const normalizedTimes = normalizeTaskTimes(time);
+      if (!normalizedTimes?.length) {
+        alert("Напиши час як 08:30 або кілька через кому: 08:30, 22:00.");
+        return;
+      }
+      task.times = normalizedTimes;
+      task.time = normalizedTimes[0];
     askTaskChime(task);
   } else {
     const date = prompt(
@@ -2235,3 +2260,12 @@ function showCalmCorner() {
 }
 
 window.showCalmCorner = showCalmCorner;
+
+
+
+
+
+
+
+
+

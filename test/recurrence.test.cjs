@@ -300,3 +300,35 @@ test("switching away from a weekly routine clears its selected weekdays", async 
   assert.equal(b.saved().tasks[0].repeat, undefined);
   assert.equal(b.saved().tasks[0].weekdays, undefined);
 });
+
+test("a daily routine can have two times in one day", async () => {
+  const a = app([], ["Вмивання", "1", "1", "08:30, 22:00"]);
+  await a.context.addTask(10, "2026-10-04");
+  const task = a.saved().tasks[0];
+  assert.deepEqual(task.times, ["08:30", "22:00"]);
+  assert.equal(on(a.context, task, "2026-10-05"), true);
+});
+
+test("two task times can chime independently on the same day", async () => {
+  const task = daily({ chime: true, time: "08:30" });
+  task.times = ["08:30", "22:00"];
+
+  const a = app([task]);
+  let played = 0;
+  a.context.playTaskChime = async () => { played++; return true; };
+
+  a.setDate(2026, 10, 4, 8, 31);
+  await a.context.checkTimedTaskChimes();
+  assert.equal(played, 1);
+
+  a.setDate(2026, 10, 4, 22, 1);
+  await a.context.checkTimedTaskChimes();
+  assert.equal(played, 2);
+
+  await a.context.checkTimedTaskChimes();
+  assert.equal(played, 2);
+  assert.deepEqual(a.saved().tasks[0].chimedForKeys, [
+    "2026-10-04|08:30",
+    "2026-10-04|22:00"
+  ]);
+});
