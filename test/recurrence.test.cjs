@@ -45,6 +45,7 @@ function app(tasks, answers = []) {
     },
     localStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => { storage.set(key, value); writes++; } }
   });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../public/lullaby-catalog.js"), "utf8"), context);
   vm.runInContext(source, context);
   context.playCelebration = () => {};
   context.askInboxFolder = () => ({ id: 10, name: "Квартира" });
@@ -431,3 +432,11 @@ test('lullaby remains the same through midnight and supports a favorite', () => 
   a.context.updateComfort({lullabyVideo:'UCKKVdBKehs'});
   assert.equal(a.context.lullabyForEvening(new Date(2026,10,1,23)).video,'UCKKVdBKehs');
 });
+
+ test("lullaby catalogue includes the library and excludes scream-tagged videos", () => {
+ const c = app([]);
+ const entries = vm.runInContext('lullabyExcerpts', c.context || c);
+ assert.ok(entries.length > 500);
+ for (const id of ['YSeBoE4cA0M', 'ZRWCT6B95rI', 'hdCGdFKgfN8', 'qdM_j2jmREY']) assert.ok(!entries.some(e => e.video === id));
+ assert.equal(new Set(entries.map(e=>e.video)).size, entries.length);
+ });
