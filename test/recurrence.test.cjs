@@ -21,11 +21,16 @@ function app(tasks, answers = []) {
   const prompts = [];
   let writes = 0;
   const context = vm.createContext({
-    console, Date: AppDate, Audio: class {}, navigator: {},
+    console, Date: AppDate, Audio: class {
+      constructor(src) { this.src = src; this.currentTime = 0; this.paused = true; this.playCount = 0; }
+      async play() { this.paused = false; this.playCount++; }
+      pause() { this.paused = true; }
+    }, navigator: {},
     window: { location: { hostname: "planner.test" }, addEventListener() {} },
     document: {
       readyState: "loading", addEventListener() {},
       querySelector: s => s === "main" ? main : null,
+      querySelectorAll: () => [],
       getElementById: id => elements.get(id) || null,
       createElement: () => ({ style: {}, remove() { elements.delete(this.id); } }),
       body: { appendChild: e => elements.set(e.id, e) }
@@ -355,4 +360,58 @@ test("a completed task time stays quiet while the later time can still chime", a
   a.setDate(2026, 10, 4, 22, 1);
   await a.context.checkTimedTaskChimes();
   assert.equal(played, 1);
+});
+
+
+test("small groups retain every task and keep timed reminders separate", () => {
+  const a = app([]);
+  const tasks = Array.from({length: 8}, (_, i) => ({id:i, text:'Task '+i}));
+  tasks.push(daily({id:90, chime:true}));
+  const groups = a.context.splitGentleGroups(tasks);
+  assert.deepEqual(Array.from(groups, g => g.tasks.length), [1,3,3,2]);
+  assert.equal(groups[0].tasks[0].id,90);
+  assert.equal(new Set(groups.flatMap(g => Array.from(g.tasks, t => t.id))).size,9);
+  assert.ok(!tasks[0].done);
+});
+
+test("comfort preferences leave tasks, recurrence and completion records untouched", async () => {
+  const a = app([daily({chime:true,times:['08:00','22:00']})]);
+  await a.context.loadData();
+  const before=a.saved();
+  a.context.updateComfort({background:'night',autoBackground:true,volume:0, victories:[{text:'Rested'}]});
+  assert.deepEqual(a.saved(),before);
+  assert.equal(a.context.getAlarmMelodyUrl(), '/sounds/golden-mercy.mp3');
+});
+
+test("full alarm track continues without restarting when another reminder becomes due", async () => {
+  const a = app([]);
+  a.context.updateComfort({alarmMelody:'behind-the-fairy-door'});
+  assert.equal(await a.context.playTaskChime(),true);
+  vm.runInContext('reminderMelody.currentTime = 42',a.context);
+  assert.equal(await a.context.playTaskChime(),true);
+  assert.equal(vm.runInContext('reminderMelody.currentTime',a.context),42);
+  assert.equal(vm.runInContext('reminderMelody.playCount',a.context),1);
+  assert.equal(vm.runInContext('reminderMelody.loop',a.context),true);
+  assert.equal(vm.runInContext('reminderMelody.src',a.context),'/sounds/behind-the-fairy-door.mp3');
+  a.context.stopTaskAlarm();
+  assert.equal(vm.runInContext('reminderMelody.paused',a.context),true);
+});
+
+test("alarm stops ambient music and ignores its zero volume", async () => {
+  const a = app([]);
+  a.context.updateComfort({volume:0});
+  await a.context.playComfortSound('first-smile-cat');
+  assert.equal(vm.runInContext('comfortAudio.loop',a.context),true);
+  await a.context.playTaskChime();
+  assert.equal(vm.runInContext('comfortAudio',a.context),null);
+  assert.equal(vm.runInContext('reminderMelody.volume',a.context),0.82);
+});
+
+test("rest room keeps scheduled reminders eligible", async () => {
+  const a = app([daily({chime:true})]);
+  a.context.showRestRoom();
+  let played=0;
+  a.context.playTaskChime=async()=>{played++;return true;};
+  await a.context.checkTimedTaskChimes();
+  assert.equal(played,1);
 });

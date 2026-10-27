@@ -1,4 +1,4 @@
-﻿let data = { folders: [], tasks: [] };
+let data = { folders: [], tasks: [] };
 
 const typeNames = {
   agreement: "🔁 Регулярне · домовленість",
@@ -507,6 +507,7 @@ let reminderAudioContext = null;
 let reminderCheckBusy = false;
 let reminderMelodyUnlocked = false;
 let activeTaskAlarmAudio = null;
+let activeReminderTexts = [];
 
 const ALARM_MELODY_URL = "/alarm-light-come-home.mp3?v=2";
 const reminderMelody = new Audio(ALARM_MELODY_URL);
@@ -546,6 +547,7 @@ async function unlockReminderAudio() {
   if (reminderMelodyUnlocked) return;
 
   try {
+    reminderMelody.src = getAlarmMelodyUrl();
     reminderMelody.muted = true;
     await reminderMelody.play();
     reminderMelody.pause();
@@ -607,6 +609,7 @@ async function playFallbackTaskChime() {
 }
 
 function stopTaskAlarm() {
+  activeReminderTexts = [];
   if (activeTaskAlarmAudio) {
     try {
       activeTaskAlarmAudio.pause();
@@ -622,7 +625,10 @@ function stopTaskAlarm() {
 window.stopTaskAlarm = stopTaskAlarm;
 
 async function playTaskChime() {
+  if (activeTaskAlarmAudio && !activeTaskAlarmAudio.paused) return true;
   stopTaskAlarm();
+  stopComfortSound();
+  reminderMelody.src = getAlarmMelodyUrl();
 
   try {
     reminderMelody.currentTime = 0;
@@ -648,12 +654,13 @@ async function playTaskChime() {
 }
 
 function showTaskChimeToast(task) {
+  if (!activeReminderTexts.includes(task.text)) activeReminderTexts.push(task.text);
   document.getElementById("taskChimeToast")?.remove();
 
   const toast = document.createElement("div");
   toast.id = "taskChimeToast";
   toast.innerHTML = `
-    <div>🔔 <strong>Час:</strong> ${linkifyTaskText(task.text)}</div>
+    <div>🔔 <strong>Час:</strong> ${activeReminderTexts.map(text => linkifyTaskText(text)).join("<br>")}</div>
     <button type="button" onclick="stopTaskAlarm()" style="
       margin-top:10px;
       padding:8px 14px;
@@ -911,7 +918,7 @@ async function celebrateTask(taskId, oldFolderId, occurrenceDate) {
   await saveData();
   playCelebration();
 
-  setTimeout(() => openFolder(oldFolderId, occurrenceDate), 5000);
+  openFolder(oldFolderId, occurrenceDate);
 }
 
 window.celebrateTask = celebrateTask;
@@ -1991,24 +1998,16 @@ async function showToday() {
         📖 Уривок для тебе
       </button>
     </div>
+    <div class="gentle-actions">
+      <button onclick="showSoftStart()">🌱 М’який старт</button>
+      <button onclick="showSurprise()">✨ Трохи нового</button>
+      <button onclick="showRestRoom()">☁️ Відпочити</button>
+    </div>
     <h3>${dateText}</h3>
     <button class="inline-add-task" onclick="addTaskForDate('${today}', ${weekday}, 'today')">➕ Додати на сьогодні</button>
 
     <div>
-      ${todayTasks.length
-        ? todayTasks.map(task => `
-            <p>
-              ${getTaskTimes(task).length > 1
-                ? getTaskTimes(task).map(time => `<button onclick="toggleTodayTask(${task.id}, '${time}')">${taskTimeDoneOnDate(task, today, time) ? "✅" : "☐"} <strong>${time}</strong></button>`).join(" ")
-                : `<button onclick="toggleTodayTask(${task.id})">${taskDoneOnDate(task, today) ? "✅" : "☐"}</button> ${task.chime ? "🔔 " : ""}${getTaskTimeLabel(task) ? `<strong>${getTaskTimeLabel(task)}</strong> — ` : ""}`
-              }
-              ${linkifyTaskText(task.text)}
-              <small>${taskRepeatLabel(task) || typeNames[task.type] || ""}</small>
-              <button onclick="editTodayTask(${task.id})" title="Редагувати" style="padding:2px 5px; min-width:0; width:auto; font-size:14px; line-height:1; margin-left:6px; vertical-align:middle;">✏️</button>
-            </p>
-          `).join("")
-        : "<p>На сьогодні справ немає 🌿</p>"
-      }
+      ${renderGentleGroups(todayTasks, today)}
     </div>
   `;
 }
@@ -2126,28 +2125,6 @@ async function toggleTodayTask(taskId, time = null) {
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) return;
 
-  const heart = document.createElement("div");
-  heart.textContent = "💗";
-  heart.style.position = "fixed";
-  heart.style.left = "50%";
-  heart.style.top = "60%";
-  heart.style.fontSize = "64px";
-  heart.style.zIndex = "99999";
-  heart.style.pointerEvents = "none";
-  heart.style.transform = "translate(-50%, -50%) scale(0.5)";
-  heart.style.opacity = "1";
-
-  document.body.appendChild(heart);
-
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      heart.style.transition = "top 0.8s ease-out, transform 0.8s ease-out, opacity 0.8s ease-out";
-      heart.style.top = "25%";
-      heart.style.transform = "translate(-50%, -50%) scale(1.8)";
-      heart.style.opacity = "0";
-    });
-  });
-
   const dateKey = formatLocalDate(new Date());
   if (time) {
     const done = !taskTimeDoneOnDate(task, dateKey, time);
@@ -2158,10 +2135,7 @@ async function toggleTodayTask(taskId, time = null) {
   await syncBookProgressForTask(task);
   await saveData();
 
-  setTimeout(() => {
-    heart.remove();
-    showToday();
-  }, 850);
+  await showToday();
 }
 
 window.toggleTodayTask = toggleTodayTask;
@@ -2207,70 +2181,7 @@ if (document.readyState === "loading") {
 } else {
   loadAnchorPhrase();
 }
-function playCelebration() {
-  const layer = document.createElement("div");
-  layer.style.position = "fixed";
-  layer.style.inset = "0";
-  layer.style.zIndex = "999999";
-  layer.style.pointerEvents = "none";
-  layer.style.overflow = "hidden";
-  document.body.appendChild(layer);
-
-  const symbols = ["💗","💕","🌸","✨","🎉","💖"];
-
-  for (let i = 0; i < 32; i++) {
-    const piece = document.createElement("div");
-    piece.textContent = symbols[Math.floor(Math.random() * symbols.length)];
-    piece.style.position = "absolute";
-    piece.style.left = Math.random() * 100 + "%";
-    piece.style.top = "-10%";
-    piece.style.fontSize = (18 + Math.random() * 24) + "px";
-    piece.style.opacity = "1";
-    piece.style.transition = `top ${2 + Math.random() * 2}s ease-out, transform 3s ease, opacity 3.5s ease`;
-    layer.appendChild(piece);
-
-    setTimeout(() => {
-      piece.style.top = (70 + Math.random() * 30) + "%";
-      piece.style.transform = `rotate(${Math.random() * 720 - 360}deg)`;
-      piece.style.opacity = "0";
-    }, 50 + i * 35);
-  }
-
-  const flower = document.createElement("div");
-  flower.innerHTML = `
-    <div style="font-size:70px">🌷</div>
-    <div style="margin-top:10px;font-size:22px;font-weight:600">
-      З цим я вітаю тебе 💗
-    </div>
-  `;
-  flower.style.position = "absolute";
-  flower.style.left = "50%";
-  flower.style.bottom = "8%";
-  flower.style.textAlign = "center";
-  flower.style.color = "#573d4b";
-  flower.style.transform = "translateX(-50%) scale(0)";
-  flower.style.transformOrigin = "bottom center";
-  flower.style.opacity = "0";
-  flower.style.padding = "18px 28px";
-  flower.style.borderRadius = "24px";
-  flower.style.background = "rgba(255,240,246,.82)";
-  flower.style.backdropFilter = "blur(10px)";
-  flower.style.boxShadow = "0 10px 35px rgba(91,55,72,.18)";
-  flower.style.transition = "transform 1.6s cubic-bezier(.2,.9,.3,1.3), opacity .7s ease";
-  layer.appendChild(flower);
-
-  setTimeout(() => {
-    flower.style.opacity = "1";
-    flower.style.transform = "translateX(-50%) scale(1)";
-  }, 500);
-
-  setTimeout(() => {
-    flower.style.transition = "opacity .7s ease";
-    flower.style.opacity = "0";
-  }, 4300);
-
-  setTimeout(() => layer.remove(), 5000);
-}
+function playCelebration() { /* Completion is a record, not a reward. */ }
 
 window.playCelebration = playCelebration;
 
@@ -2301,3 +2212,249 @@ function showCalmCorner() {
 }
 
 window.showCalmCorner = showCalmCorner;
+
+// Optional comfort settings are separate from task and medication records.
+const COMFORT_KEY = 'chas-comfort-v1';
+function readComfort() {
+  try { return JSON.parse(localStorage.getItem(COMFORT_KEY)) || {}; }
+  catch { return {}; }
+}
+function updateComfort(patch) {
+  try {
+    localStorage.setItem(COMFORT_KEY, JSON.stringify({ ...readComfort(), ...patch }));
+    return true;
+  } catch { alert('Не вдалося зберегти. Перевір вільне місце у браузері.'); return false; }
+}
+function splitGentleGroups(tasks, size = 3) {
+  const timed = tasks.filter(t => getTaskTimes(t).length || t.chime);
+  const flexible = tasks.filter(t => !getTaskTimes(t).length && !t.chime);
+  const groups = [];
+  if (timed.length) groups.push({ title: 'У свій час', tasks: timed });
+  for (let i = 0; i < flexible.length; i += size) {
+    groups.push({ title: `Маленька група ${Math.floor(i / size) + 1}`, tasks: flexible.slice(i, i + size) });
+  }
+  return groups;
+}
+function renderGentleGroups(tasks, today) {
+  if (!tasks.length) return '<p>На сьогодні справ немає 🌿</p>';
+  return splitGentleGroups(tasks).map(group => `<section class="gentle-group"><h3>${group.title}</h3>${group.tasks.map(task => `
+    <div class="gentle-task">
+      <div>${getTaskTimes(task).length > 1
+        ? getTaskTimes(task).map(time => `<button aria-label="Відмітити ${time}" onclick="toggleTodayTask(${task.id}, '${time}')">${taskTimeDoneOnDate(task, today, time) ? '✅' : '☐'} <strong>${time}</strong></button>`).join(' ')
+        : `<button aria-label="Відмітити виконання" onclick="toggleTodayTask(${task.id})">☐</button> ${getTaskTimeLabel(task) ? `<strong>${getTaskTimeLabel(task)}</strong> — ` : ''}`}
+      ${task.chime ? '🔔 ' : ''}${linkifyTaskText(task.text)}
+      <small>${taskRepeatLabel(task) || typeNames[task.type] || ''}</small></div>
+      <div class="gentle-actions"><button onclick="editTodayTask(${task.id})" aria-label="Редагувати справу">✏️</button>
+      ${!getTaskTimes(task).length && !task.chime ? `<button onclick="showTaskChoice(${task.id})">Як мені зручно?</button>` : ''}</div>
+    </div>`).join('')}</section>`).join('');
+}
+function showTaskChoice(id) {
+  const task = data.tasks.find(t => t.id === id);
+  if (!task) return;
+  const saved = readComfort().steps || {};
+  document.querySelector('main').innerHTML = `<h2>Свій спосіб</h2><p>${linkifyTaskText(task.text)}</p>
+    <p>Можна зробити частину, змінити спосіб або повернутися пізніше. Справу відмічаєш виконаною лише ти.</p>
+    <div class="gentle-actions"><button onclick="showSoftStart(${id})">Один маленький крок</button>
+    <button onclick="setTaskWay(${id}, 'Спробувати дві хвилини — без обов’язку продовжувати')">Спробувати 2 хвилини</button>
+    <button onclick="setTaskWay(${id}, 'Зробити разом з кимось або попросити допомоги')">З допомогою</button>
+    <button onclick="setTaskWay(${id}, 'Зробити по-своєму')">По-своєму</button></div>
+    <label for="ownStep">Мій посильний варіант</label><textarea id="ownStep" maxlength="1000">${escapeInboxHtml(saved[id] || '')}</textarea>
+    <button onclick="saveTaskWay(${id})">Зберегти мій варіант</button><p id="wayStatus" role="status"></p>
+    <button onclick="showToday()">Повернутися до дня</button>`;
+}
+function setTaskWay(id, text) { document.getElementById('ownStep').value = text; }
+function saveTaskWay(id) {
+  const steps = { ...(readComfort().steps || {}), [id]: document.getElementById('ownStep').value.trim() };
+  if (updateComfort({ steps })) document.getElementById('wayStatus').textContent = 'Твій варіант збережено. Розклад справи не змінився.';
+}
+async function showSoftStart(id = null) {
+  await loadData();
+  const task = data.tasks.find(t => t.id === id);
+  document.querySelector('main').innerHTML = `<h2>🌱 М’який старт</h2>
+    <p>Зараз достатньо знайти один доступний рух. Завершувати всю справу не потрібно.</p>
+    ${task ? `<p>${linkifyTaskText(task.text)}</p>` : ''}
+    <div class="gentle-actions"><button onclick="softStep('Поклади поруч одну потрібну річ. На цьому можна зупинитися.')">Не можу почати</button>
+    <button onclick="softStep('Відкрий потрібну сторінку або файл. Поки що просто подивись.')">Забагато всього</button>
+    <button onclick="softStep('Обери найменший шматочок, який не потребує підготовки. Або відпочинок.')">Майже немає сил</button></div>
+    <p id="softStep" role="status">Обери, що зараз найближче.</p>
+    <div class="gentle-actions"><button onclick="showRestRoom()">Мені потрібен відпочинок</button><button onclick="showToday()">Повернутися до справ</button></div>`;
+}
+function softStep(text) { document.getElementById('softStep').textContent = text; }
+const gentleSurprises = [
+  'Знайди навколо один відтінок, якого сьогодні ще не помічала.',
+  'Придумай назву цьому вечору — наче це розділ твоєї книги.',
+  'Обери знайому пісню й послухай лише один інструмент у ній.',
+  'Уяви, що на підвіконні живе крихітний дракон. Де він спав би?',
+  'Знайди одну річ, до якої приємно торкнутися.',
+  'Зміни одну дрібницю у звичній справі, якщо хочеться: місце, чашку чи музику.',
+  'Яку маленьку красу сьогодні хотілося б сфотографувати?',
+  'Відкрий віконце уяви: який краєвид ти хотіла б зараз бачити?'
+];
+function showSurprise() {
+  const old = readComfort().lastSurprise;
+  const choices = gentleSurprises.map((_, i) => i).filter(i => i !== old);
+  const index = choices[Math.floor(Math.random() * choices.length)];
+  updateComfort({ lastSurprise: index });
+  document.querySelector('main').innerHTML = `<h2>✨ Трохи нового</h2><p>Маленька знахідка доступна будь-коли. Її не треба заробляти.</p>
+    <p class="surprise-card">${gentleSurprises[index]}</p><div class="gentle-actions"><button onclick="showSurprise()">Щось інше</button><button onclick="showToday()">Залишити на потім</button></div>`;
+}
+function showRestRoom() {
+  document.querySelector('main').innerHTML = `<h2>☁️ Кімната відпочинку</h2><p class="surprise-card">Тут можна просто побути.</p>
+    <p>Без відліку й завдань. Тиша теж підходить.</p>
+    ${soundControls()}<div class="gentle-actions"><button onclick="showAtmosphere()">Обрати фон</button>
+    <button onclick="showCalmCorner()">Закуток спокою</button><button onclick="showToday()">Повернутися, коли захочеться</button></div>
+    <p class="gentle-note">Нагадування про ліки й інші справи за часом залишаються увімкненими. Залиш додаток відкритим: закритий браузер не гарантує сигналу.</p>`;
+  syncSoundControls();
+}
+const comfortBackgrounds = {
+  original: { name: 'Мій звичний фон', css: '' },
+  dawn: { name: 'Ранкове світло', css: 'radial-gradient(ellipse at 20% 10%, #fff4d6, transparent 60%), linear-gradient(140deg, #e2d2e9, #f6e1d7 55%, #d4e5dc)' },
+  forest: { name: 'Тихий сад', css: 'radial-gradient(ellipse at 80% 15%, #f8edce, transparent 55%), linear-gradient(145deg, #a6bcb2, #d9e2ce 55%, #b6c8c4)' },
+  dusk: { name: 'Вечір біля озера', css: 'radial-gradient(ellipse at 70% 35%, #ecd2c7, transparent 50%), linear-gradient(155deg, #979bb9, #c6b4ce 50%, #a4bac8)' },
+  night: { name: 'Нічна тиша', css: 'radial-gradient(ellipse at 75% 15%, #81839d, transparent 40%), linear-gradient(135deg, #3b415b, #696078 60%, #414f65)' }
+};
+function applyComfortBackground() {
+  const prefs = readComfort();
+  let key = prefs.background || 'original';
+  if (prefs.autoBackground) {
+    const hour = new Date().getHours();
+    key = hour < 6 || hour >= 22 ? 'night' : hour < 11 ? 'dawn' : hour < 17 ? 'forest' : 'dusk';
+  }
+  document.body.style.background = comfortBackgrounds[key]?.css || '';
+  document.body.style.backgroundAttachment = 'fixed';
+  document.body.classList.toggle('comfort-night', key === 'night');
+}
+function chooseBackground(key) {
+  if (!comfortBackgrounds[key]) return;
+  if (updateComfort({ background: key, autoBackground: false })) { applyComfortBackground(); showAtmosphere(); }
+}
+function toggleAutoBackground(value) {
+  if (updateComfort({ autoBackground: value })) applyComfortBackground();
+}
+function showAtmosphere() {
+  const prefs = readComfort();
+  document.querySelector('main').innerHTML = `<h2>🎧 Атмосфера</h2><h3>Бібліотека звуків</h3>
+    <p>Твої композиції грають повністю. Повтор починається лише після кінця треку. Гучність атмосфери не змінює будильник.</p>${soundControls()}${alarmMelodyControls()}
+    <h3>Фони</h3><p>Звичне зображення збережене. Додаткові фони — спокійні кольорові атмосфери.</p>
+    <div class="background-options">${Object.entries(comfortBackgrounds).map(([key, bg]) => `<button aria-pressed="${!prefs.autoBackground && (prefs.background || 'original') === key}" onclick="chooseBackground('${key}')" class="background-option"><span style="background:${bg.css || 'url(background.png) center / cover'}"></span>${bg.name}</button>`).join('')}</div>
+    <label class="gentle-check"><input type="checkbox" ${prefs.autoBackground ? 'checked' : ''} onchange="toggleAutoBackground(this.checked)"> Змінювати фон за часом доби</label>
+    <p class="gentle-note">Ранок 06–11 · день 11–17 · вечір 17–22 · ніч 22–06. Час цього пристрою. Ручний вибір вимикає автоматичний.</p>
+    <button onclick="showToday()">До мого дня</button>`;
+  syncSoundControls();
+}
+let comfortAudio = null;
+let comfortContext = null;
+let comfortSource = null;
+let comfortGain = null;
+let comfortSound = '';
+function soundControls() {
+  return `<div class="gentle-actions">${[['rain','Дощ'],['sea','Хвилі'],['warm','М’який шум'], ...Object.entries(comfortMelodies).map(([key, m]) => [key, m.name])].map(([key,label]) => `<button data-comfort-sound="${key}" onclick="playComfortSound('${key}')">${label}</button>`).join('')}<button onclick="stopComfortSound()">Тиша</button></div>
+    <label for="comfortVolume">Гучність атмосфери</label><input id="comfortVolume" type="range" min="0" max="0.5" step="0.01" value="${Number(readComfort().volume ?? 0.15)}" oninput="setComfortVolume(this.value)"><p id="soundStatus" role="status"></p><div id="soundPlayer"></div>`;
+}
+function syncSoundControls(message) {
+  const player = document.getElementById('soundPlayer');
+  if (player) {
+    player.replaceChildren();
+    if (comfortAudio) { comfortAudio.controls = true; comfortAudio.setAttribute('aria-label', 'Повна композиція'); player.appendChild(comfortAudio); }
+  }
+  document.querySelectorAll('[data-comfort-sound]').forEach(el => el.setAttribute('aria-pressed', String(el.dataset.comfortSound === comfortSound)));
+  const el = document.getElementById('soundStatus');
+  if (el) el.textContent = message || (comfortSound ? 'Звук грає. Можна вимкнути будь-коли.' : 'Зараз тихо.');
+}
+function stopComfortSound() {
+  if (comfortAudio) { comfortAudio.pause(); comfortAudio = null; }
+  if (comfortSource) { try { comfortSource.stop(); } catch {} comfortSource = null; }
+  if (comfortContext) { comfortContext.close().catch(() => {}); comfortContext = null; }
+  comfortGain = null; comfortSound = ''; syncSoundControls();
+}
+function setComfortVolume(value) {
+  const volume = Math.max(0, Math.min(0.5, Number(value) || 0));
+  updateComfort({ volume });
+  if (comfortGain) comfortGain.gain.value = volume;
+  if (comfortAudio) comfortAudio.volume = volume;
+}
+async function playComfortSound(key) {
+  stopComfortSound();
+  const volume = Number(readComfort().volume ?? 0.15);
+  comfortSound = key;
+  try {
+    if (comfortMelodies[key]) {
+      const audio = new Audio(comfortMelodies[key].url);
+      comfortAudio = audio; audio.loop = true; audio.volume = volume;
+      await audio.play();
+      if (comfortAudio !== audio) { audio.pause(); return; }
+    } else {
+      const AudioClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioClass) throw new Error('Audio unsupported');
+      const ctx = new AudioClass(); comfortContext = ctx;
+      await ctx.resume();
+      if (comfortContext !== ctx) return;
+      const buffer = ctx.createBuffer(1, ctx.sampleRate * 8, ctx.sampleRate);
+      const samples = buffer.getChannelData(0);
+      let brown = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const noise = Math.random() * 2 - 1;
+        brown = (brown + noise * 0.02) / 1.02;
+        samples[i] = key === 'rain' ? noise * 0.45 : brown * 3.5 * (key === 'sea' ? 0.55 + 0.45 * Math.sin(2 * Math.PI * i / samples.length) : 1);
+      }
+      comfortSource = ctx.createBufferSource(); comfortSource.buffer = buffer; comfortSource.loop = true;
+      comfortGain = ctx.createGain(); comfortGain.gain.value = volume;
+      comfortSource.connect(comfortGain); comfortGain.connect(ctx.destination); comfortSource.start();
+    }
+    syncSoundControls();
+  } catch { stopComfortSound(); syncSoundControls('Не вдалося відтворити звук. Спробуй натиснути ще раз.'); }
+}
+function showVictories() {
+  const victories = readComfort().victories || [];
+  document.querySelector('main').innerHTML = `<h2>🌿 Несподівані перемоги</h2><p>Те, що має значення для тебе: попросила допомоги, помітила красиве, вчасно зупинилася. Без балів і серій.</p>
+    <label for="victoryText">Що сьогодні хочеться зберегти?</label><textarea id="victoryText" maxlength="2000" placeholder="Мій несподіваний момент…"></textarea>
+    <button onclick="addVictory()">Зберегти момент</button><p id="victoryStatus" role="status"></p>
+    ${victories.slice().reverse().map(v => `<article class="gentle-group"><small>${escapeInboxHtml(v.date)}</small><p>${escapeInboxHtml(v.text)}</p><button onclick="deleteVictory('${v.id}')">Видалити</button></article>`).join('') || '<p>Тут є місце для твоїх знахідок. Заповнювати щодня не потрібно.</p>'}
+    <p class="gentle-note">Колекція та налаштування атмосфери зберігаються в цьому браузері.</p><button onclick="showToday()">До мого дня</button>`;
+}
+function addVictory() {
+  const text = document.getElementById('victoryText').value.trim();
+  if (!text) { document.getElementById('victoryStatus').textContent = 'Напиши кілька слів про свій момент.'; return; }
+  const victories = [...(readComfort().victories || []), { id: `${Date.now()}-${Math.random().toString(36).slice(2,8)}`, date: new Date().toLocaleDateString('uk-UA'), text }];
+  if (updateComfort({ victories })) showVictories();
+}
+function deleteVictory(id) {
+  if (confirm('Видалити цей запис із колекції?')) {
+    if (updateComfort({ victories: (readComfort().victories || []).filter(v => v.id !== id) })) showVictories();
+  }
+}
+window.addEventListener('load', applyComfortBackground);
+setInterval(applyComfortBackground, 60000);
+
+const comfortMelodies = {
+  "golden-mercy": {"name": "Golden Mercy", "url": "/sounds/golden-mercy.mp3"},
+  "apples-in-the-grass": {"name": "Apples in the Grass", "url": "/sounds/apples-in-the-grass.mp3"},
+  "cast-of-small-wonders": {"name": "Cast of Small Wonders", "url": "/sounds/cast-of-small-wonders.mp3"},
+  "first-smile-cat": {"name": "First Smile, Cat", "url": "/sounds/first-smile-cat.mp3"},
+  "behind-the-fairy-door": {"name": "Behind the Fairy Door", "url": "/sounds/behind-the-fairy-door.mp3"},
+  melody: { name: 'Попередній короткий сигнал', url: ALARM_MELODY_URL }
+};
+
+function getAlarmMelodyUrl() {
+  return comfortMelodies[readComfort().alarmMelody]?.url || comfortMelodies['golden-mercy'].url;
+}
+function alarmMelodyControls() {
+  const selected = readComfort().alarmMelody || 'golden-mercy';
+  return `<h3>Мелодія будильника</h3><p>Окремий вибір для всіх нагадувань, зокрема про ліки. Гучність сигналу залишається незмінною.</p>
+    <label for="alarmMelody">Обрана мелодія</label><select id="alarmMelody" onchange="chooseAlarmMelody(this.value)">
+    ${Object.entries(comfortMelodies).map(([key,m]) => `<option value="${key}" ${key === selected ? 'selected' : ''}>${m.name}</option>`).join('')}</select>
+    <div class="gentle-actions"><button onclick="previewAlarmMelody()">Прослухати сигнал</button><button onclick="stopComfortSound()">Зупинити прослуховування</button></div>
+    <p id="alarmChoiceStatus" role="status"></p>`;
+}
+function chooseAlarmMelody(key) {
+  if (!comfortMelodies[key]) return;
+  if (updateComfort({ alarmMelody: key })) {
+    reminderMelodyUnlocked = false;
+    document.getElementById('alarmChoiceStatus').textContent = 'Мелодію збережено. Час нагадувань не змінено.';
+  }
+}
+async function previewAlarmMelody() {
+  if (activeTaskAlarmAudio) return;
+  await playComfortSound(readComfort().alarmMelody || 'golden-mercy');
+  if (comfortAudio) { comfortAudio.volume = 0.82; comfortAudio.loop = false; comfortAudio.onended = stopComfortSound; }
+}

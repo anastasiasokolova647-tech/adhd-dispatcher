@@ -557,3 +557,25 @@ small {
     word-break: break-word;
   }
 }
+
+/* Gentle additions keep the original palette and all existing views. */
+.gentle-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.gentle-group { margin:18px 0; padding:16px; border:1px solid #e7cbd6; border-radius:18px; background:rgba(255,255,255,.48); }
+.gentle-group h3 { margin:0 0 12px; font-size:17px; }
+.gentle-task { padding:12px 0; overflow-wrap:anywhere; line-height:1.6; }
+.gentle-task + .gentle-task { border-top:1px solid #ead8e0; }
+.gentle-task .gentle-actions { margin:6px 0 0; }
+.gentle-task .gentle-actions button { font-size:13px; padding:6px 10px; }
+.surprise-card { padding:28px 16px; font-size:23px; line-height:1.65; }
+.gentle-note { font-size:13px; color:#68535f; }
+.gentle-check { display:flex; align-items:center; gap:12px; margin:20px 0 8px; }
+.gentle-check input { width:auto; }
+.background-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; }
+.background-option { padding:8px; }
+.background-option span { display:block; height:72px; border-radius:10px; margin-bottom:8px; }
+button[aria-pressed="true"] { outline:2px solid #8b4667; outline-offset:2px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline:3px solid #8b4667; outline-offset:3px; }
+.comfort-night > h1, .comfort-night > p { color:#fff5fa; text-shadow:none; }
+.comfort-night main { background:rgba(255,250,252,.94); }
+#comfortVolume { max-width:320px; display:block; padding:0; margin:12px 0; }
+@media (prefers-reduced-motion:reduce) { button:hover { transform:none; } }
