@@ -2467,13 +2467,52 @@ function lullabyEveningKey(now = new Date()) {
   if (now.getHours() < 6) evening.setDate(evening.getDate() - 1);
   return formatLocalDate(evening);
 }
+const lullabyMoods = {
+  chill: {label:'🌿 Мені добре, просто чилю', tags:['Спокій','Радість','Вдячність'], gentle:true},
+  sleep: {label:'🌙 Хочу заснути', tags:['Потрібен сон','Сонливість','Відпочинок','Розслаблення','Тіло розслабляється'], gentle:true},
+  warmth: {label:'🫂 Хочу тепла й близькості', tags:['Ніжність','Близькість','Обійми','Бути поруч']},
+  sad: {label:'🌧 Мені сумно, хочу побути з цим', tags:['Сум','Туга','Плач','Хочеться плакати','Горе']},
+  anxious: {label:'🕯 Мені тривожно, хочу підтримки', tags:['Тривога','Страх','Безпека','Приймаю підтримку']},
+  tired: {label:'☁️ Я виснажена, хочу перепочити', tags:['Виснаження','Втома','Немає сил','Відпочинок']},
+  all: {label:'🍵 Будь-який стан', tags:[]}
+};
+function currentLullabyMood() {
+  const key = readComfort().lullabyMood || 'all';
+  return lullabyMoods[key] ? key : 'all';
+}
+function lullabyPool(mood = currentLullabyMood()) {
+  const rule = lullabyMoods[mood] || lullabyMoods.all;
+  return lullabyExcerpts.filter(e => {
+    const tags = e.tags || [];
+    if (rule.tags.length && !rule.tags.some(t => tags.includes(t))) return false;
+    // A warm ending does not make a painful scene fit a carefree evening.
+    if (rule.gentle && tags.some(t => /біль|бол[яиі]|ран[яи]|плач|сл[ьі]оз|сум|туг[аи]|страх|тривог|горе|втрат|смерт|відча|самот|покин|зрад|гнів|сором|провин|безсил|ненавист|образ|поран|крик|війна|війни/i.test(t))) return false;
+    return true;
+  });
+}
+function chooseLullabyMood(mood) {
+  if (!lullabyMoods[mood]) return;
+  if (updateComfort({lullabyMood:mood, lullabyVideo:'daily', lullabySkip:0})) {
+    showLullaby(); updateLullabyInvitation();
+  }
+}
+function anotherLullaby() {
+  const prefs = readComfort(), evening = lullabyEveningKey();
+  const skip = prefs.lullabySkipEvening === evening ? (prefs.lullabySkip || 0) : 0;
+  if (updateComfort({lullabyVideo:'daily',lullabySkip:skip+1,lullabySkipEvening:evening})) {
+    showLullaby(); updateLullabyInvitation();
+  }
+}
 function lullabyForEvening(now = new Date()) {
   const prefs = readComfort();
-  const chosen = lullabyExcerpts.find(e => e.video === prefs.lullabyVideo);
+  const pool = lullabyPool();
+  if (!pool.length) return null;
+  const chosen = pool.find(e => e.video === prefs.lullabyVideo);
   if (chosen) return chosen;
   const date = parseTaskDate(lullabyEveningKey(now));
   const day = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
-  return lullabyExcerpts[day % lullabyExcerpts.length];
+  const skip = prefs.lullabySkipEvening === lullabyEveningKey(now) ? (prefs.lullabySkip || 0) : 0;
+  return pool[(day + skip) % pool.length];
 }
 function lullabyIsDue(now, prefs) {
   if (prefs.lullabyEnabled === false) return false;
@@ -2491,18 +2530,22 @@ function updateLullabyInvitation() {
     document.querySelector('nav').after(card);
   }
   const excerpt = lullabyForEvening(now);
+  if (!excerpt) { card.remove(); return; }
   card.innerHTML = `<strong>🌙 Вечірня колисанка</strong><p>«${escapeInboxHtml(excerpt.title)}» із «Чаю опівночі» — коли захочеш вмоститися зручніше.</p><div class="gentle-actions"><button onclick="showLullaby()">Відкрити уривок</button><button onclick="dismissLullaby()">Сьогодні без нагадування</button></div>`;
 }
 function dismissLullaby() {
   if (updateComfort({lullabyDismissed:lullabyEveningKey()})) updateLullabyInvitation();
 }
 function showLullaby() {
-  const prefs = readComfort(), excerpt = lullabyForEvening();
+  const prefs = readComfort(), excerpt = lullabyForEvening(), mood = currentLullabyMood(), pool = lullabyPool();
   document.querySelector('main').innerHTML = `<h2>🌙 Вечірня колисанка</h2><p>Твій уривок із «Чаю опівночі». Відеоуривків: ${lullabyExcerpts.length}. З усіх книжкових папок, без тегу «Крик».</p>
-    <h3>${escapeInboxHtml(excerpt.title)}</h3><p>${escapeInboxHtml(excerpt.book)} · Анастасія Соколова</p>
+    <label for="lullabyMood">Як тобі зараз?</label><select id="lullabyMood" onchange="chooseLullabyMood(this.value)">${Object.entries(lullabyMoods).map(([key, value])=>`<option value="${key}" ${key===mood?'selected':''}>${value.label}</option>`).join('')}</select>
+    <p class="gentle-note">${mood==='all'?'Уся добірка.':'Добір за тегами твого «Чаю». Уривків для цього стану: '+pool.length+'.'} ${lullabyMoods[mood].gentle?'Без тегів болю, плачу, тривоги та втрати.':''}</p>
+    ${excerpt ? `<h3>${escapeInboxHtml(excerpt.title)}</h3><p>${escapeInboxHtml(excerpt.book)} · Анастасія Соколова</p>
     <div id="lullabyPlayer"></div><div class="gentle-actions"><button onclick="playLullaby()">▶ Послухати уривок</button><a href="https://www.youtube.com/watch?v=${excerpt.video}" target="_blank" rel="noopener noreferrer">Відкрити на YouTube</a></div>
-    <p>Повне відео, без автоматичного запуску й повтору.</p>
-    <label for="lullabyVideo">Що слухати ввечері</label><select id="lullabyVideo" onchange="saveLullabySettings()"><option value="daily">Щовечора інший із добірки</option>${lullabyExcerpts.map(e=>`<option value="${e.video}" ${prefs.lullabyVideo===e.video?'selected':''}>${escapeInboxHtml(e.book)} — ${escapeInboxHtml(e.title)}</option>`).join('')}</select>
+    <button onclick="anotherLullaby()" ${pool.length<2?'disabled':''}>↻ Інший уривок у цьому настрої</button>
+    <p>Повне відео, без автоматичного запуску й повтору.</p>` : '<p>Для цього стану поки немає уривків. Можеш обрати інший стан.</p>'}
+    <label for="lullabyVideo">Що слухати ввечері</label><select id="lullabyVideo" onchange="saveLullabySettings()"><option value="daily">Щовечора інший із добірки</option>${pool.map(e=>`<option value="${e.video}" ${prefs.lullabyVideo===e.video?'selected':''}>${escapeInboxHtml(e.book)} — ${escapeInboxHtml(e.title)}</option>`).join('')}</select>
     <label class="gentle-check"><input id="lullabyEnabled" type="checkbox" ${prefs.lullabyEnabled===false?'':'checked'} onchange="saveLullabySettings()"> Пропонувати колисанку щовечора</label>
     <label for="lullabyTime">Мій вечірній час</label><input id="lullabyTime" type="time" value="${/^\d{2}:\d{2}$/.test(prefs.lullabyTime || '')?prefs.lullabyTime:'22:00'}" onchange="saveLullabySettings()">
     <p class="gentle-note">Запрошення з’являється у відкритому додатку або коли повернешся ввечері. Час цього пристрою. Нагадування про ліки працюють окремо.</p><button onclick="showToday()">До мого дня</button>`;
@@ -2518,6 +2561,7 @@ function playLullaby() {
   if (activeTaskAlarmAudio) return;
   stopComfortSound();
   const excerpt = lullabyForEvening();
+  if (!excerpt) return;
   document.getElementById('lullabyPlayer').innerHTML = `<iframe title="${escapeInboxHtml(excerpt.title)}" src="https://www.youtube-nocookie.com/embed/${excerpt.video}" allow="encrypted-media; picture-in-picture; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
 }
 window.addEventListener('load',updateLullabyInvitation);

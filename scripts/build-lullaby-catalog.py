@@ -20,11 +20,12 @@ for path in sorted(root.rglob('*.md')):
     if rel.parts[0] not in ('Поезія присутності', 'Коли шукаєш відповідь (проза))'):
         continue
     for video in videos:
-        records.append(dict(title=re.sub(r'^\d+[.\s]*', '', path.stem).strip('«». '), book=re.sub(r'^\d+\s*', '', rel.parts[1]), video=video))
+        records.append(dict(title=re.sub(r'^\d+[.\s]*', '', path.stem).strip('«». '), book=re.sub(r'^\d+\s*', '', rel.parts[1]), video=video, tags=sorted(set(link.split('|')[0].split('#')[0].rstrip('/').split('/')[-1] for link in re.findall(r'\[\[([^\]]+)\]\]', text)))))
 unique = {}
 for item in records:
     if item['video'] not in blocked:
-        unique.setdefault(item['video'], item)
+        existing = unique.setdefault(item['video'], item)
+        existing['tags'] = sorted(set(existing['tags']) | set(item['tags']))
 items = sorted(unique.values(), key=lambda e: (e['book'], e['title']))
 assert len(items) > 3
 output = Path(__file__).resolve().parents[1] / 'public/lullaby-catalog.js'

@@ -440,3 +440,34 @@ test('lullaby remains the same through midnight and supports a favorite', () => 
  for (const id of ['YSeBoE4cA0M', 'ZRWCT6B95rI', 'hdCGdFKgfN8', 'qdM_j2jmREY']) assert.ok(!entries.some(e => e.video === id));
  assert.equal(new Set(entries.map(e=>e.video)).size, entries.length);
  });
+
+test('carefree lullabies exclude painful scenes even with warm tags and stale favorites', () => {
+ const a=app([]);
+ const hurt=vm.runInContext('lullabyExcerpts.find(e=>e.title === "Як часом ранять слова")',a.context);
+ assert.ok(hurt);
+ a.context.updateComfort({lullabyMood:'chill',lullabyVideo:hurt.video});
+ const pool=a.context.lullabyPool();
+ assert.ok(pool.some(e=>e.title==='Літній вечір'));
+ assert.ok(pool.some(e=>e.title==='Затишок'));
+ assert.ok(!pool.some(e=>e.video===hurt.video));
+ assert.notEqual(a.context.lullabyForEvening().video,hurt.video);
+ a.context.showLullaby();
+ assert.ok(!a.main.innerHTML.includes(hurt.title));
+ for(let i=0;i<100;i++) assert.ok(pool.some(e=>e.video===a.context.lullabyForEvening(new Date(2026,9,i+1,23)).video));
+ a.context.updateComfort({lullabyMood:'sad',lullabyVideo:hurt.video});
+ assert.equal(a.context.lullabyForEvening().video,hurt.video);
+});
+test('another lullaby stays in selected mood and persists for the same evening', () => {
+ const a=app([]);
+ a.context.updateLullabyInvitation=()=>{};
+ a.context.chooseLullabyMood('chill');
+ const first=a.context.lullabyForEvening().video;
+ a.context.anotherLullaby();
+ const second=a.context.lullabyForEvening().video;
+ assert.notEqual(first,second);
+ assert.equal(a.context.lullabyForEvening().video,second);
+ assert.ok(a.context.lullabyPool().some(e=>e.video===second));
+ a.context.chooseLullabyMood('sleep');
+ assert.equal(a.context.readComfort().lullabyVideo,'daily');
+ assert.ok(a.context.lullabyPool().length>0);
+});
