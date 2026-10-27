@@ -628,6 +628,7 @@ async function playTaskChime() {
   if (activeTaskAlarmAudio && !activeTaskAlarmAudio.paused) return true;
   stopTaskAlarm();
   stopComfortSound();
+  document.getElementById('lullabyPlayer')?.replaceChildren();
   reminderMelody.src = getAlarmMelodyUrl();
 
   try {
@@ -2308,17 +2309,18 @@ function showRestRoom() {
 }
 const comfortBackgrounds = {
   original: { name: 'Мій звичний фон', css: '' },
-  dawn: { name: 'Ранкове світло', css: 'radial-gradient(ellipse at 20% 10%, #fff4d6, transparent 60%), linear-gradient(140deg, #e2d2e9, #f6e1d7 55%, #d4e5dc)' },
-  forest: { name: 'Тихий сад', css: 'radial-gradient(ellipse at 80% 15%, #f8edce, transparent 55%), linear-gradient(145deg, #a6bcb2, #d9e2ce 55%, #b6c8c4)' },
-  dusk: { name: 'Вечір біля озера', css: 'radial-gradient(ellipse at 70% 35%, #ecd2c7, transparent 50%), linear-gradient(155deg, #979bb9, #c6b4ce 50%, #a4bac8)' },
-  night: { name: 'Нічна тиша', css: 'radial-gradient(ellipse at 75% 15%, #81839d, transparent 40%), linear-gradient(135deg, #3b415b, #696078 60%, #414f65)' }
+  meadow: { name: 'Трава в сонці', css: 'url(/backgrounds/meadow.webp) center center / cover' },
+  dawn: { name: 'Озеро на світанку', css: 'url(/backgrounds/dawn.webp) center center / cover' },
+  forest: { name: 'Квітучий сад', css: 'url(/backgrounds/forest.webp) center center / cover' },
+  dusk: { name: 'Сад у вечірніх вогниках', css: 'url(/backgrounds/dusk.webp) center center / cover' },
+  night: { name: 'Озеро під місяцем', css: 'url(/backgrounds/night.webp) center center / cover' }
 };
 function applyComfortBackground() {
   const prefs = readComfort();
   let key = prefs.background || 'original';
   if (prefs.autoBackground) {
     const hour = new Date().getHours();
-    key = hour < 6 || hour >= 22 ? 'night' : hour < 11 ? 'dawn' : hour < 17 ? 'forest' : 'dusk';
+    key = hour < 6 || hour >= 22 ? 'night' : hour < 11 ? 'dawn' : hour < 14 ? 'meadow' : hour < 17 ? 'forest' : 'dusk';
   }
   document.body.style.background = comfortBackgrounds[key]?.css || '';
   document.body.style.backgroundAttachment = 'fixed';
@@ -2335,10 +2337,10 @@ function showAtmosphere() {
   const prefs = readComfort();
   document.querySelector('main').innerHTML = `<h2>🎧 Атмосфера</h2><h3>Бібліотека звуків</h3>
     <p>Твої композиції грають повністю. Повтор починається лише після кінця треку. Гучність атмосфери не змінює будильник.</p>${soundControls()}${alarmMelodyControls()}
-    <h3>Фони</h3><p>Звичне зображення збережене. Додаткові фони — спокійні кольорові атмосфери.</p>
+    <h3>Фони</h3><p>Затишні пейзажі для різного часу доби. Обери свій краєвид або дозволь йому змінюватися разом із днем.</p>
     <div class="background-options">${Object.entries(comfortBackgrounds).map(([key, bg]) => `<button aria-pressed="${!prefs.autoBackground && (prefs.background || 'original') === key}" onclick="chooseBackground('${key}')" class="background-option"><span style="background:${bg.css || 'url(background.png) center / cover'}"></span>${bg.name}</button>`).join('')}</div>
     <label class="gentle-check"><input type="checkbox" ${prefs.autoBackground ? 'checked' : ''} onchange="toggleAutoBackground(this.checked)"> Змінювати фон за часом доби</label>
-    <p class="gentle-note">Ранок 06–11 · день 11–17 · вечір 17–22 · ніч 22–06. Час цього пристрою. Ручний вибір вимикає автоматичний.</p>
+    <p class="gentle-note">Озеро 06–11 · сонячна трава 11–14 · сад 14–17 · вечір 17–22 · ніч 22–06. Час цього пристрою. Ручний вибір вимикає автоматичний.</p>
     <button onclick="showToday()">До мого дня</button>`;
   syncSoundControls();
 }
@@ -2458,3 +2460,71 @@ async function previewAlarmMelody() {
   await playComfortSound(readComfort().alarmMelody || 'golden-mercy');
   if (comfortAudio) { comfortAudio.volume = 0.82; comfortAudio.loop = false; comfortAudio.onended = stopComfortSound; }
 }
+
+// Verified video excerpts from the author's «Чай опівночі» collection.
+const lullabyExcerpts = [
+  {title:'Плед. Чай. Тиша', book:'Крізь ніч', video:'UCKKVdBKehs'},
+  {title:'Затишок', book:'Твій рай', video:'kGgtf7lfnzA'},
+  {title:'Ніч на двох', book:'Крізь ніч', video:'GOnMwALQMns'}
+];
+function lullabyEveningKey(now = new Date()) {
+  const evening = new Date(now);
+  if (now.getHours() < 6) evening.setDate(evening.getDate() - 1);
+  return formatLocalDate(evening);
+}
+function lullabyForEvening(now = new Date()) {
+  const prefs = readComfort();
+  const chosen = lullabyExcerpts.find(e => e.video === prefs.lullabyVideo);
+  if (chosen) return chosen;
+  const date = parseTaskDate(lullabyEveningKey(now));
+  const day = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+  return lullabyExcerpts[day % lullabyExcerpts.length];
+}
+function lullabyIsDue(now, prefs) {
+  if (prefs.lullabyEnabled === false) return false;
+  const time = /^\d{2}:\d{2}$/.test(prefs.lullabyTime || '') ? prefs.lullabyTime : '22:00';
+  const [h,m] = time.split(':').map(Number);
+  const minutes = now.getHours()*60 + now.getMinutes();
+  return minutes >= h*60+m || minutes < 360;
+}
+function updateLullabyInvitation() {
+  const now = new Date(), prefs = readComfort();
+  let card = document.getElementById('lullabyInvitation');
+  if (!lullabyIsDue(now,prefs) || prefs.lullabyDismissed === lullabyEveningKey(now)) { card?.remove(); return; }
+  if (!card) {
+    card = document.createElement('section'); card.id='lullabyInvitation';
+    document.querySelector('nav').after(card);
+  }
+  const excerpt = lullabyForEvening(now);
+  card.innerHTML = `<strong>🌙 Вечірня колисанка</strong><p>«${excerpt.title}» із «Чаю опівночі» — коли захочеш вмоститися зручніше.</p><div class="gentle-actions"><button onclick="showLullaby()">Відкрити уривок</button><button onclick="dismissLullaby()">Сьогодні без нагадування</button></div>`;
+}
+function dismissLullaby() {
+  if (updateComfort({lullabyDismissed:lullabyEveningKey()})) updateLullabyInvitation();
+}
+function showLullaby() {
+  const prefs = readComfort(), excerpt = lullabyForEvening();
+  document.querySelector('main').innerHTML = `<h2>🌙 Вечірня колисанка</h2><p>Твій уривок із «Чаю опівночі».</p>
+    <h3>${excerpt.title}</h3><p>${excerpt.book} · Анастасія Соколова</p>
+    <div id="lullabyPlayer"></div><div class="gentle-actions"><button onclick="playLullaby()">▶ Послухати уривок</button><a href="https://www.youtube.com/watch?v=${excerpt.video}" target="_blank" rel="noopener noreferrer">Відкрити на YouTube</a></div>
+    <p>Повне відео, без автоматичного запуску й повтору.</p>
+    <label for="lullabyVideo">Що слухати ввечері</label><select id="lullabyVideo" onchange="saveLullabySettings()"><option value="daily">Щовечора інший із добірки</option>${lullabyExcerpts.map(e=>`<option value="${e.video}" ${prefs.lullabyVideo===e.video?'selected':''}>${e.title}</option>`).join('')}</select>
+    <label class="gentle-check"><input id="lullabyEnabled" type="checkbox" ${prefs.lullabyEnabled===false?'':'checked'} onchange="saveLullabySettings()"> Пропонувати колисанку щовечора</label>
+    <label for="lullabyTime">Мій вечірній час</label><input id="lullabyTime" type="time" value="${/^\d{2}:\d{2}$/.test(prefs.lullabyTime || '')?prefs.lullabyTime:'22:00'}" onchange="saveLullabySettings()">
+    <p class="gentle-note">Запрошення з’являється у відкритому додатку або коли повернешся ввечері. Час цього пристрою. Нагадування про ліки працюють окремо.</p><button onclick="showToday()">До мого дня</button>`;
+}
+function saveLullabySettings() {
+  const time = document.getElementById('lullabyTime').value;
+  if (!/^\d{2}:\d{2}$/.test(time)) return;
+  if (updateComfort({lullabyEnabled:document.getElementById('lullabyEnabled').checked,lullabyTime:time,lullabyVideo:document.getElementById('lullabyVideo').value})) {
+    showLullaby(); updateLullabyInvitation();
+  }
+}
+function playLullaby() {
+  if (activeTaskAlarmAudio) return;
+  stopComfortSound();
+  const excerpt = lullabyForEvening();
+  document.getElementById('lullabyPlayer').innerHTML = `<iframe title="${excerpt.title}" src="https://www.youtube-nocookie.com/embed/${excerpt.video}" allow="encrypted-media; picture-in-picture; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
+}
+window.addEventListener('load',updateLullabyInvitation);
+window.addEventListener('focus',updateLullabyInvitation);
+setInterval(updateLullabyInvitation,30000);

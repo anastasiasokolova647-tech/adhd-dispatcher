@@ -415,3 +415,19 @@ test("rest room keeps scheduled reminders eligible", async () => {
   await a.context.checkTimedTaskChimes();
   assert.equal(played,1);
 });
+
+test('evening invitation respects enabled preference and selected time', () => {
+  const a=app([]);
+  assert.equal(a.context.lullabyIsDue(new Date(2026,9,27,21,59),{}),false);
+  assert.equal(a.context.lullabyIsDue(new Date(2026,9,27,22,0),{}),true);
+  assert.equal(a.context.lullabyIsDue(new Date(2026,9,28,1,0),{}),true);
+  assert.equal(a.context.lullabyIsDue(new Date(2026,9,28,6,0),{}),false);
+  assert.equal(a.context.lullabyIsDue(new Date(2026,9,27,23,0),{lullabyEnabled:false}),false);
+  assert.equal(a.context.lullabyIsDue(new Date(2026,9,27,20,0),{lullabyTime:'20:00'}),true);
+});
+test('lullaby remains the same through midnight and supports a favorite', () => {
+  const a=app([]);
+  assert.equal(a.context.lullabyForEvening(new Date(2026,9,27,23)).video,a.context.lullabyForEvening(new Date(2026,9,28,1)).video);
+  a.context.updateComfort({lullabyVideo:'UCKKVdBKehs'});
+  assert.equal(a.context.lullabyForEvening(new Date(2026,10,1,23)).video,'UCKKVdBKehs');
+});

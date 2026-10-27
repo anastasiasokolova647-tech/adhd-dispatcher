@@ -579,3 +579,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline:3px 
 .comfort-night main { background:rgba(255,250,252,.94); }
 #comfortVolume { max-width:320px; display:block; padding:0; margin:12px 0; }
 @media (prefers-reduced-motion:reduce) { button:hover { transform:none; } }
+#lullabyInvitation { width:min(900px,100%); margin:0 auto 18px; padding:18px 24px; border-radius:20px; background:rgba(255,248,252,.94); color:#493742; }
+#lullabyInvitation p { margin-bottom:0; }
+#lullabyPlayer iframe { display:block; width:100%; aspect-ratio:16/9; border:0; border-radius:16px; }
