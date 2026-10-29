@@ -582,3 +582,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline:3px 
 #lullabyInvitation { width:min(900px,100%); margin:0 auto 18px; padding:18px 24px; border-radius:20px; background:rgba(255,248,252,.94); color:#493742; }
 #lullabyInvitation p { margin-bottom:0; }
 #lullabyPlayer iframe { display:block; width:100%; aspect-ratio:16/9; border:0; border-radius:16px; }
+
+/* Gentle day-part navigation: no changes to stored task data. */
+.day-period-tabs { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
+.day-period-tabs button { flex:1 1 125px; }
+.day-period-tabs button[aria-pressed="true"] { background:rgba(255,223,236,.98); outline:2px solid #8b4667; outline-offset:1px; font-weight:700; }
+@media (max-width:600px) { .day-period-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .day-period-tabs button { min-width:0; } }
