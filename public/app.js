@@ -2279,6 +2279,57 @@ function splitGentleGroups(tasks, size = 3) {
   }
   return groups;
 }
+
+// Daily affectionate phrasing keeps the actual task text intact.
+const FRIENDLY_TASK_PREFIXES = [
+  'Зайчику, ', 'Мася, ', 'Сонечко, ', 'Маленька моя, ',
+  'Зіронько, ', 'Рідненька, ', 'Квіточко, ', 'Заюню, '
+];
+const FRIENDLY_TASK_ENDINGS = [
+  ' — як матимеш хвилинку 💗', ' 🌷', ' — потихеньку, без поспіху ☕',
+  ' — у своєму темпі 🌿', ' ✨', ' — нехай буде легенько 💛',
+  ' — без гонитви, добре? 🫶', ' 🌸'
+];
+const FRIENDLY_TASK_SPECIAL = [
+  { pattern: /застелити ліжко|заправити ліжко/i, variants: [
+    'Зайчику, ліжечко чекає на твої турботливі ручки 🛏️',
+    'Мася, зробимо ліжечку затишно? 🌷',
+    'Сонечко, ковдрочка просить маленького порядку 💗',
+    'Заюню, час подарувати ліжечку охайний вигляд ✨'
+  ] },
+  { pattern: /вмитися|умитися|помити обличчя/i, variants: [
+    'Зіронько, водичка вже чекає освіжити твої щічки 💧',
+    'Зайчику, маленьке ранкове вмивання — і готово 🌸',
+    'Мася, ходімо освіжимо личко 💗'
+  ] },
+  { pattern: /скласти піжаму/i, variants: [
+    'Заюню, піжамка проситься на своє місце 🌷',
+    'Сонечко, влаштуємо піжамці затишний відпочинок? 💛',
+    'Мася, піжамку теж можна вкласти спатоньки ✨'
+  ] }
+];
+function dailyFriendlyIndex(task, dateKey, length, salt = '') {
+  const value = String(task.id) + ':' + dateKey + ':' + salt;
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % length;
+}
+function friendlyTaskText(task, dateKey) {
+  const text = String(task.text || '').trim();
+  if (!text) return '';
+  const special = FRIENDLY_TASK_SPECIAL.find(item => item.pattern.test(text));
+  if (special) {
+    return escapeInboxHtml(special.variants[dailyFriendlyIndex(task, dateKey, special.variants.length, 'special')]);
+  }
+  const prefix = FRIENDLY_TASK_PREFIXES[dailyFriendlyIndex(task, dateKey, FRIENDLY_TASK_PREFIXES.length, 'prefix')];
+  const ending = FRIENDLY_TASK_ENDINGS[dailyFriendlyIndex(task, dateKey, FRIENDLY_TASK_ENDINGS.length, 'ending')];
+  const natural = text.charAt(0).toLowerCase() + text.slice(1);
+  return escapeInboxHtml(prefix) + linkifyTaskText(natural) + escapeInboxHtml(ending);
+}
+
 function renderGentleGroups(tasks, today) {
   if (!tasks.length) return '<p>На сьогодні справ немає 🌿</p>';
   return splitGentleGroups(tasks).map(group => `<section class="gentle-group"><h3>${group.title}</h3>${group.tasks.map(task => `
@@ -2286,7 +2337,7 @@ function renderGentleGroups(tasks, today) {
       <div>${getTaskTimes(task).length > 1
         ? getTaskTimes(task).map(time => `<button aria-label="Відмітити ${time}" onclick="toggleTodayTask(${task.id}, '${time}')">${taskTimeDoneOnDate(task, today, time) ? '✅' : '☐'} <strong>${time}</strong></button>`).join(' ')
         : `<button aria-label="Відмітити виконання" onclick="toggleTodayTask(${task.id})">☐</button> ${getTaskTimeLabel(task) ? `<strong>${getTaskTimeLabel(task)}</strong> — ` : ''}`}
-      ${task.chime ? '🔔 ' : ''}${linkifyTaskText(task.text)}
+      ${task.chime ? '🔔 ' : ''}${friendlyTaskText(task, today)}
       <small>${taskRepeatLabel(task) || typeNames[task.type] || ''}</small></div>
       <div class="gentle-actions"><button onclick="editTodayTask(${task.id})" aria-label="Редагувати справу">✏️</button>
       ${!getTaskTimes(task).length && !task.chime ? `<button onclick="showTaskChoice(${task.id})">Як мені зручно?</button>` : ''}</div>
