@@ -1962,6 +1962,46 @@ function goCalendarToday() {
 
 window.goCalendarToday = goCalendarToday;
 
+
+// Day parts are presentation-only: existing tasks and their alarms remain unchanged.
+const DAY_PERIODS = [
+  { id: 'morning', label: '🌅 Ранок' },
+  { id: 'day', label: '☀️ День' },
+  { id: 'evening', label: '🌙 Вечір' },
+  { id: 'flexible', label: '🌿 Без часу' }
+];
+let selectedDayPeriod = 'morning';
+
+function getTaskDayPeriod(task) {
+  const times = getTaskTimes(task);
+  if (!times.length) return 'flexible';
+  const hour = Number(times[0].split(':')[0]);
+  if (!Number.isFinite(hour)) return 'flexible';
+  return hour < 12 ? 'morning' : hour < 18 ? 'day' : 'evening';
+}
+function renderDayPeriodTasks(tasks, today) {
+  const active = DAY_PERIODS.find(period => period.id === selectedDayPeriod) || DAY_PERIODS[0];
+  const matching = tasks.filter(task => getTaskDayPeriod(task) === active.id);
+  return matching.length
+    ? renderGentleGroups(matching, today)
+    : '<p class="gentle-note">Тут поки тихо 🌿</p>';
+}
+function selectDayPeriod(period) {
+  if (!DAY_PERIODS.some(item => item.id === period)) return;
+  selectedDayPeriod = period;
+  const today = formatLocalDate(new Date());
+  const buttons = document.querySelectorAll('.day-period-tabs button');
+  buttons.forEach((button, index) => button.setAttribute('aria-pressed', String(DAY_PERIODS[index].id === period)));
+  const tasks = data.tasks.filter(task => {
+    if (taskDoneOnDate(task, today)) return false;
+    if (getTaskRepeat(task)) return taskOccursOnDate(task, new Date());
+    return (task.date && task.date <= today) || (!task.date && task.type !== 'agreement');
+  }).sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
+  const region = document.getElementById('dayPeriodTasks');
+  if (region) region.innerHTML = renderDayPeriodTasks(tasks, today);
+}
+window.selectDayPeriod = selectDayPeriod;
+
 async function showToday() {
   await loadData();
 
@@ -2007,8 +2047,11 @@ async function showToday() {
     <h3>${dateText}</h3>
     <button class="inline-add-task" onclick="addTaskForDate('${today}', ${weekday}, 'today')">➕ Додати на сьогодні</button>
 
-    <div>
-      ${renderGentleGroups(todayTasks, today)}
+    <div class="day-period-tabs" role="group" aria-label="Частина дня">
+      ${DAY_PERIODS.map(period => `<button type="button" aria-pressed="${selectedDayPeriod === period.id}" onclick="selectDayPeriod('${period.id}')">${period.label}</button>`).join('')}
+    </div>
+    <div id="dayPeriodTasks">
+      ${renderDayPeriodTasks(todayTasks, today)}
     </div>
   `;
 }
