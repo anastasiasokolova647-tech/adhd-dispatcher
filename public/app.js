@@ -1035,6 +1035,9 @@ async function addTask(folderId, selectedDate) {
       }
     }
 
+    if (preferredPeriod && ['morning', 'day', 'evening'].includes(preferredPeriod)) {
+      task.dayPeriod = preferredPeriod;
+    }
     askTaskChime(task);
 
     data.tasks.push(task);
@@ -1212,7 +1215,7 @@ function askInboxFolder(text) {
     .join("\n");
 
   const answer = prompt(
-    `Куди покласти цю справу?\n\n"${text}"\n\n${menu}\n\nСкасування — лишити у Вхідних.`
+    `Куди покласти цю справу?\n\n"${text}"\n\n${menu}\n\nВведи номер папки й натисни OK. Скасування — не додавати справу.`
   );
 
   if (!answer) return null;
@@ -1601,7 +1604,7 @@ function getTaskTimes(task) {
 function getTaskTimeLabel(task) {
   return getTaskTimes(task).join(", ");
 }
-async function addTaskForDate(dateKey, weekday, returnView) {
+async function addTaskForDate(dateKey, weekday, returnView, preferredPeriod = null) {
   try {
     await loadData();
 
@@ -1974,10 +1977,10 @@ let selectedDayPeriod = 'morning';
 
 function getTaskDayPeriod(task) {
   const times = getTaskTimes(task);
-  if (!times.length) return 'flexible';
+  if (!times.length) return ['morning', 'day', 'evening'].includes(task.dayPeriod) ? task.dayPeriod : 'flexible';
   const hour = Number(times[0].split(':')[0]);
   if (!Number.isFinite(hour)) return 'flexible';
-  return hour < 12 ? 'morning' : hour < 18 ? 'day' : 'evening';
+  return ['morning', 'day', 'evening'].includes(task.dayPeriod) ? task.dayPeriod : (hour < 12 ? 'morning' : hour < 18 ? 'day' : 'evening');
 }
 function renderDayPeriodTasks(tasks, today) {
   const active = DAY_PERIODS.find(period => period.id === selectedDayPeriod) || DAY_PERIODS[0];
@@ -2045,7 +2048,7 @@ async function showToday() {
       <button onclick="showRestRoom()">☁️ Відпочити</button>
     </div>
     <h3>${dateText}</h3>
-    <button class="inline-add-task" onclick="addTaskForDate('${today}', ${weekday}, 'today')">➕ Додати на сьогодні</button>
+    <button class="inline-add-task" onclick="addTaskForDate('${today}', ${weekday}, 'today', selectedDayPeriod)">➕ Додати в обрану частину дня</button>
 
     <div class="day-period-tabs" role="group" aria-label="Частина дня">
       ${DAY_PERIODS.map(period => `<button type="button" aria-pressed="${selectedDayPeriod === period.id}" onclick="selectDayPeriod('${period.id}')">${period.label}</button>`).join('')}
@@ -2134,6 +2137,13 @@ async function editTask(taskId, folderId, occurrenceDate) {
     askTaskChime(task);
   }
 
+  if (document.querySelector('.day-period-tabs')) {
+    const chosen = prompt('Частина дня: 1 — ранок, 2 — день, 3 — вечір, 4 — без часу', ({morning:'1',day:'2',evening:'3',flexible:'4'})[task.dayPeriod || getTaskDayPeriod(task)] || '4');
+    if (chosen !== null) {
+      const chosenPeriod = ({'1':'morning','2':'day','3':'evening','4':'flexible'})[chosen];
+      if (chosenPeriod) task.dayPeriod = chosenPeriod === 'flexible' ? undefined : chosenPeriod;
+    }
+  }
   delete task.chimedFor;
   data.tasks = data.tasks.map(t => t.id === taskId ? task : t);
   await saveData();
