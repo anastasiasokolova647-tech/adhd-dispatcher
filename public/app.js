@@ -1613,8 +1613,23 @@ async function addTaskForDate(dateKey, weekday, returnView, preferredPeriod = nu
     const text = prompt("Що треба зробити?");
     if (!text || !text.trim()) return;
 
-    const folder = askInboxFolder(text.trim());
-    if (!folder) return;
+    let folder;
+    if (returnView === "today") {
+      // The selected day period is not a folder. Prefer an existing task folder
+      // and never silently abandon task creation when a numeric prompt fails.
+      const folders = data.folders.filter(f => !f.celebration);
+      if (!folders.length) {
+        alert("Спочатку створи папку у розділі «Мої папки».");
+        return;
+      }
+      folder = folders.length === 1 ? folders[0] : askInboxFolder(text.trim());
+    } else {
+      folder = askInboxFolder(text.trim());
+    }
+    if (!folder) {
+      alert("Справу не додано: папку не вибрано. Введи номер зі списку папок.");
+      return;
+    }
 
     const answer = prompt(
       "Тип справи:\n1 — Регулярне: домовленість\n2 — Регулярне: дедлайн\n3 — Регулярне: власний дедлайн\n4 — Одноразове",
@@ -1672,6 +1687,10 @@ async function addTaskForDate(dateKey, weekday, returnView, preferredPeriod = nu
       if (task.type !== "oneTime" && !askTaskRepeat(task, task.date, true)) return;
     }
 
+    if (returnView === "today" && DAY_PERIODS.some(p => p.id === preferredPeriod)) {
+      // Preserve the selected tab even if the task has no time.
+      task.dayPeriod = preferredPeriod;
+    }
     askTaskChime(task);
 
     data.tasks.push(task);
