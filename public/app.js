@@ -1604,6 +1604,57 @@ function getTaskTimes(task) {
 function getTaskTimeLabel(task) {
   return getTaskTimes(task).join(", ");
 }
+function chooseTaskFolder(text) {
+  const folders = Array.isArray(data.folders) ? data.folders.filter(f => !f.celebration) : [];
+  return new Promise(resolve => {
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px";
+    const panel = document.createElement("section");
+    panel.style.cssText = "background:#fffaf4;color:#29232e;border-radius:18px;padding:22px;width:min(460px,100%);max-height:85vh;overflow:auto;box-shadow:0 15px 55px #0006";
+    const heading = document.createElement("h2");
+    heading.textContent = "📁 Куди додати справу?";
+    panel.append(heading);
+    const subtitle = document.createElement("p");
+    subtitle.textContent = text;
+    panel.append(subtitle);
+    const choices = document.createElement("div");
+    choices.style.cssText = "display:grid;gap:9px;margin:15px 0";
+    panel.append(choices);
+    let finished = false;
+    function close(folder) {
+      if (finished) return;
+      finished = true;
+      document.removeEventListener("keydown", onKey);
+      overlay.remove();
+      resolve(folder);
+    }
+    function onKey(event) { if (event.key === "Escape") close(null); }
+    document.addEventListener("keydown", onKey);
+    function addChoice(label, callback) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = label;
+      btn.style.cssText = "padding:12px;text-align:left;border:1px solid #c9bac5;border-radius:12px;background:#f4e9f0;color:#29232e;cursor:pointer";
+      btn.onclick = callback;
+      choices.append(btn);
+    }
+    folders.forEach(folder => addChoice("📁 " + folder.name, () => close(folder)));
+    addChoice("➕ Нова папка", async () => {
+      const name = prompt("Назва нової папки:");
+      if (!name || !name.trim()) return;
+      const folder = { id: Date.now(), name: name.trim() };
+      data.folders.push(folder);
+      try { await saveData(); close(folder); }
+      catch (error) { data.folders.pop(); alert("Не вдалося створити папку. Спробуй ще раз."); console.error(error); }
+    });
+    addChoice("🌿 Без папки", () => close({ id: null }));
+    addChoice("Скасувати", () => close(null));
+    overlay.append(panel);
+    overlay.addEventListener("click", event => { if (event.target === overlay) close(null); });
+    document.body.append(overlay);
+  });
+}
+
 async function addTaskForDate(dateKey, weekday, returnView, preferredPeriod = null) {
   try {
     await loadData();
@@ -1613,22 +1664,8 @@ async function addTaskForDate(dateKey, weekday, returnView, preferredPeriod = nu
     const text = prompt("Що треба зробити?");
     if (!text || !text.trim()) return;
 
-    let folder;
-    if (returnView === "today") {
-      // The selected day period is not a folder. Prefer an existing task folder
-      // and never silently abandon task creation when a numeric prompt fails.
-      const folders = data.folders.filter(f => !f.celebration);
-      // Today tasks can exist without a user-created folder.
-      folder = folders.length === 0
-        ? { id: null }
-        : folders.length === 1 ? folders[0] : askInboxFolder(text.trim());
-    } else {
-      folder = askInboxFolder(text.trim());
-    }
-    if (!folder) {
-      alert("Справу не додано: папку не вибрано. Введи номер зі списку папок.");
-      return;
-    }
+    const folder = await chooseTaskFolder(text.trim());
+    if (!folder) return;
 
     const answer = prompt(
       "Тип справи:\n1 — Регулярне: домовленість\n2 — Регулярне: дедлайн\n3 — Регулярне: власний дедлайн\n4 — Одноразове",
