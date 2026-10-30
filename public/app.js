@@ -1618,11 +1618,10 @@ async function addTaskForDate(dateKey, weekday, returnView, preferredPeriod = nu
       // The selected day period is not a folder. Prefer an existing task folder
       // and never silently abandon task creation when a numeric prompt fails.
       const folders = data.folders.filter(f => !f.celebration);
-      if (!folders.length) {
-        alert("Спочатку створи папку у розділі «Мої папки».");
-        return;
-      }
-      folder = folders.length === 1 ? folders[0] : askInboxFolder(text.trim());
+      // Today tasks can exist without a user-created folder.
+      folder = folders.length === 0
+        ? { id: null }
+        : folders.length === 1 ? folders[0] : askInboxFolder(text.trim());
     } else {
       folder = askInboxFolder(text.trim());
     }
