@@ -6,7 +6,7 @@
   panel.id = 'eyeReminder';
   panel.setAttribute('aria-labelledby', 'eyeHeading');
   panel.innerHTML = `<button type="button" id="eyeClose" aria-label="Закрити" style="float:right">✕</button>
-    <h2 id="eyeHeading">🌷 Бережімо оченята</h2>
+    <h2 id="eyeHeading">🌷 Турбота про зір</h2>
     <div id="eyeClock" style="font-size:clamp(42px,10vw,64px);font-variant-numeric:tabular-nums">20:00</div>
     <p id="eyeNotice" role="status">Кожні 20 хвилин — нагадування зі звуком.</p>
     <button type="button" id="eyeToggle">▶ Почати зі звуком</button>
@@ -42,12 +42,12 @@
     $('eyeClock').textContent=String(Math.floor(secs/60)).padStart(2,'0')+':'+String(secs%60).padStart(2,'0');
     $('eyeRest').hidden=phase!=='alarm'; $('eyeToggle').hidden=phase==='alarm'||phase==='rest';
     $('eyeToggle').textContent=phase==='work'?'Ⅱ Пауза':'▶ Почати зі звуком';
-    if(nav) nav.textContent=phase==='alarm'?'🔔 Час для оченят!':phase==='work'?'👀 Оченята · '+$('eyeClock').textContent:'👀 Оченята';
+    if(nav) nav.textContent=phase==='alarm'?'🔔 Час подбати про зір!':phase==='work'?'👀 Турбота про зір · '+$('eyeClock').textContent:'👀 Турбота про зір';
   }
   function tick() {
     if(phase==='work' && Date.now()>=deadline) {
       phase='alarm'; remaining=0; stopSound();
-      $('eyeNotice').textContent='Час для оченят. Почни паузу, коли почуєш дзвінок ♡'; open(); void play();
+      $('eyeNotice').textContent='Час подбати про зір. Почни паузу, коли почуєш дзвінок ♡'; open(); void play();
     } else if(phase==='rest' && Date.now()>=deadline) {
       phase='work'; remaining=WORK; deadline=Date.now()+WORK;
       $('eyeNotice').textContent='Наступне нагадування — через 20 хвилин ♡';
