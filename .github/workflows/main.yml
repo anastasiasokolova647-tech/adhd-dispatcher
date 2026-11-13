@@ -1,0 +1,28 @@
+
+name: Перевірка планувальника
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Автоматичні тести
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Отримати код
+        uses: actions/checkout@v4
+
+      - name: Налаштувати Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Встановити залежності
+        run: npm ci
+
+      - name: Запустити тести
+        run: npm test
