@@ -705,7 +705,6 @@ async function checkTimedTaskChimes() {
       const taskTimes = getTaskTimes(task);
       if (taskDoneOnDate(task, today) || !task.chime || !taskTimes.length) continue;
       if (!taskReminderMatchesToday(task, now)) continue;
-
       const chimedKeys = new Set(Array.isArray(task.chimedForKeys) ? task.chimedForKeys : []);
       if (task.chimedFor) chimedKeys.add(task.chimedFor);
 
@@ -727,7 +726,8 @@ async function checkTimedTaskChimes() {
         showTaskChimeToast(task);
         await saveData();
       }
-} catch (error) {
+    }
+  } catch (error) {
     console.warn("Перевірка дзинь-дзинь не вдалася:", error);
   } finally {
     reminderCheckBusy = false;
@@ -910,7 +910,28 @@ async function celebrateTask(taskId, oldFolderId, occurrenceDate) {
       data.tasks.push(completed);
     }
   } else {
-м
+    task.folderId = celebrationFolder.id;
+    task.done = true;
+    task.celebratedAt = new Date().toISOString();
+  }
+
+  await saveData();
+  openFolder(celebrationFolder.id);
+  playCelebration();
+}
+
+async function addTask(folderId, selectedDate = formatLocalDate(new Date()), preferredPeriod = null) {
+  try {
+    await loadData();
+
+    const text = prompt("Що треба зробити?");
+    if (!text || !text.trim()) return;
+
+    const answer = prompt(
+      "Тип справи:\\n1 — Регулярне: домовленість\\n2 — Регулярне: дедлайн\\n3 — Регулярне: власний дедлайн\\n4 — Одноразове",
+      "4"
+    );
+
     const types = {
       "1": "agreement",
       "2": "externalDeadline",
