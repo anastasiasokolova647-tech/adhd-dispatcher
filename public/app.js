@@ -910,40 +910,7 @@ async function celebrateTask(taskId, oldFolderId, occurrenceDate) {
       data.tasks.push(completed);
     }
   } else {
-    task.folderId = celebrationFolder.id;
-    task.done = true;
-    task.celebratedAt = new Date().toISOString();
-  }
-  await syncBookProgressForTask(task);
-
-  await saveData();
-  playCelebration();
-
-  openFolder(oldFolderId, occurrenceDate);
-}
-
-window.celebrateTask = celebrateTask;
-
-async function addTask(folderId, selectedDate) {
-  try {
-    await loadData();
-
-    if (!Array.isArray(data.tasks)) data.tasks = [];
-
-    const folder = data.folders.find(f => f.id === folderId);
-    if (!folder) {
-      alert("Не знайшла папку для цієї справи. Відкрий папку ще раз.");
-      return;
-    }
-
-    const text = prompt("Що треба зробити?");
-    if (!text || !text.trim()) return;
-
-    const answer = prompt(
-      "Тип справи:\n1 — Регулярне: домовленість\n2 — Регулярне: дедлайн\n3 — Регулярне: власний дедлайн\n4 — Одноразове",
-      "4"
-    );
-
+м
     const types = {
       "1": "agreement",
       "2": "externalDeadline",
