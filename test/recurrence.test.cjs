@@ -17,6 +17,26 @@ function app(tasks, answers = []) {
   const storage = new Map([["friendly-dayplanner-data-v1", JSON.stringify({ folders: [{ id: 10, name: "Квартира" }], inbox: [], tasks })]]);
   const main = { innerHTML: "" };
   const elements = new Map();
+  // Exercise the actual folder picker rather than replacing it with a stub.
+  function element(tagName) {
+    return {
+      tagName, style: {}, children: [],
+      append(...children) {
+        for (const child of children) {
+          child.parent = this;
+          this.children.push(child);
+          if (child.id) elements.set(child.id, child);
+        }
+      },
+      appendChild(child) { this.append(child); return child; },
+      addEventListener() {},
+      remove() {
+        elements.delete(this.id);
+        if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this);
+      }
+    };
+  }
+  const body = element("body");
   const alerts = [];
   const prompts = [];
   let writes = 0;
@@ -28,12 +48,12 @@ function app(tasks, answers = []) {
     }, navigator: {},
     window: { location: { hostname: "planner.test" }, addEventListener() {} },
     document: {
-      readyState: "loading", addEventListener() {},
+      readyState: "loading", addEventListener() {}, removeEventListener() {},
       querySelector: s => s === "main" ? main : null,
       querySelectorAll: () => [],
       getElementById: id => elements.get(id) || null,
-      createElement: () => ({ style: {}, remove() { elements.delete(this.id); } }),
-      body: { appendChild: e => elements.set(e.id, e) }
+      createElement: element,
+      body
     },
     setTimeout() {}, setInterval() {}, requestAnimationFrame() {},
     confirm: () => false,
@@ -51,6 +71,15 @@ function app(tasks, answers = []) {
   context.askInboxFolder = () => ({ id: 10, name: "Квартира" });
   return {
     context, main, alerts, prompts,
+    async chooseFolder(label = "📁 Квартира") {
+      // addTaskForDate awaits loadData before mounting the picker.
+      await new Promise(resolve => setImmediate(resolve));
+      const descendants = node => node.children.flatMap(child => [child, ...descendants(child)]);
+      const button = descendants(body).find(node => node.tagName === "button" && node.textContent === label);
+      assert.ok(button, `Folder picker must offer ${label}`);
+      await button.onclick();
+      assert.equal(body.children.length, 0, "Choosing a folder must close the picker");
+    },
     state: () => JSON.parse(vm.runInContext("JSON.stringify(data)", context)),
     saved: () => JSON.parse(storage.get("friendly-dayplanner-data-v1")),
     writes: () => writes,
@@ -102,7 +131,8 @@ test("finishing Saturday leaves Friday and Sunday active in the actual views", a
   assert.equal(a.context.taskDoneOnDate(task, "2026-10-03"), true);
   assert.equal(a.context.taskDoneOnDate(task, "2026-10-04"), false);
   await a.context.showToday();
-  assert.ok(a.main.innerHTML.includes("Мікроприбирання"));
+  assert.ok(a.main.innerHTML.includes("toggleTodayTask(11)"));
+  assert.ok(a.main.innerHTML.includes("мікроприбирання"));
   await a.context.showCalendar(2026, 9);
   assert.equal((a.main.innerHTML.match(/Мікроприбирання/g) || []).length, 30);
   assert.equal((a.main.innerHTML.match(/class="calendar-task calendar-task-done"/g) || []).length, 1);
@@ -164,18 +194,26 @@ test("one-time tasks and overdue deadlines retain their existing completion beha
   const task = { id: 12, folderId: 10, text: "Одна справа", type: "ownDeadline", date: "2026-10-01", done: false, bookTracker: { bookId: "book", excerptId: "part", fields: ["plot"] } };
   const a = app([task]);
   await a.context.showToday();
-  assert.ok(a.main.innerHTML.includes(task.text));
+  assert.ok(!a.main.innerHTML.includes("toggleTodayTask(12)"), "An untimed task belongs to the flexible tab");
+  a.context.selectDayPeriod("flexible");
+  await a.context.showToday();
+  assert.ok(a.main.innerHTML.includes("toggleTodayTask(12)"));
+  assert.ok(a.main.innerHTML.includes("одна справа"));
   await a.context.toggleTodayTask(12);
   await a.context.showToday();
   assert.equal(a.saved().tasks[0].done, true);
   assert.deepEqual(a.saved().tasks[0].bookTracker, task.bookTracker);
-  assert.ok(!a.main.innerHTML.includes(task.text));
+  assert.ok(!a.main.innerHTML.includes("toggleTodayTask(12)"));
+  assert.ok(!a.main.innerHTML.includes("одна справа"));
 });
 
 test("a new daily routine can be added directly from a calendar date", async () => {
   const a = app([], ["Мікроприбирання", "1", "1", "8:00"]);
-  await a.context.addTaskForDate("2026-10-03", 6, "calendar");
+  const adding = a.context.addTaskForDate("2026-10-03", 6, "calendar");
+  await a.chooseFolder();
+  await adding;
   const task = a.saved().tasks[0];
+  assert.equal(task.folderId, 10);
   assert.equal(task.repeat, "daily");
   assert.equal(task.startDate, "2026-10-03");
   assert.equal(task.time, "08:00");
@@ -239,9 +277,12 @@ test("a weekly routine added from a folder accepts several selected days", async
 
 test("adding from the calendar saves all weekdays and completing one leaves the others visible", async () => {
   const a = app([], ["Прогулянка", "1", "2", "5; 6 7 5", "9:00"]);
-  await a.context.addTaskForDate("2026-10-02", 5, "calendar");
+  const adding = a.context.addTaskForDate("2026-10-02", 5, "calendar");
+  await a.chooseFolder();
+  await adding;
   const task = a.saved().tasks[0];
   assert.ok(task, "The calendar must save the weekly task");
+  assert.equal(task.folderId, 10);
   assert.deepEqual(task.weekdays, [5, 6, 7]);
   await a.context.showWeek();
   assert.equal((a.main.innerHTML.match(/Прогулянка/g) || []).length, 3);
@@ -256,7 +297,8 @@ test("adding from the calendar saves all weekdays and completing one leaves the 
   assert.equal((a.main.innerHTML.match(/class="calendar-task calendar-task-done"/g) || []).length, 1);
   a.setDate(2026, 10, 4);
   await a.context.showToday();
-  assert.ok(a.main.innerHTML.includes("Прогулянка"));
+  assert.ok(a.main.innerHTML.includes(`toggleTodayTask(${task.id})`));
+  assert.ok(a.main.innerHTML.includes("прогулянка"));
 });
 
 test("a repeating deadline can also select several weekdays", async () => {
@@ -471,3 +513,4 @@ test('another lullaby stays in selected mood and persists for the same evening',
  assert.equal(a.context.readComfort().lullabyVideo,'daily');
  assert.ok(a.context.lullabyPool().length>0);
 });
+
