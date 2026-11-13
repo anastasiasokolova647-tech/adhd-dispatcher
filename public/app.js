@@ -727,7 +727,7 @@ async function checkTimedTaskChimes() {
         showTaskChimeToast(task);
         await saveData();
       }
-    }  } catch (error) {
+} catch (error) {
     console.warn("Перевірка дзинь-дзинь не вдалася:", error);
   } finally {
     reminderCheckBusy = false;
